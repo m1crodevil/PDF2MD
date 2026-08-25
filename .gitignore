@@ -1,6 +1,7 @@
 target/
 md_pages/
 json/
+output/
 *.apkg
 *.sqlite
 *.db
