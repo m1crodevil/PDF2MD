@@ -90,10 +90,6 @@ fn main() {
     let cfg = load_config("config/pdf2md.toml").ok();
     match cli.command {
         Commands::Ocr(args) => {
-            let args = cfg
-                .as_ref()
-                .map(|c| c.ocr_or_default(args.clone()))
-                .unwrap_or(args);
             run_ocr(&args);
         }
         Commands::Reconstruct(args) => {
