@@ -36,28 +36,48 @@ pub(crate) fn load(path: &str) -> Result<AppConfig, String> {
 }
 
 impl AppConfig {
+    // CLI values win; config fills only clap defaults.
     pub(crate) fn reconstruct_or_default(&self, mut args: ReconstructArgs) -> ReconstructArgs {
         if let Some(cfg) = &self.reconstruct {
-            if let Some(v) = &cfg.json_dir {
-                args.json_dir = v.clone();
+            if args.json_dir == "./json" {
+                if let Some(v) = &cfg.json_dir {
+                    args.json_dir = v.clone();
+                }
             }
-            if let Some(v) = &cfg.outdir {
-                args.outdir = v.clone();
+            if args.outdir == "./output" {
+                if let Some(v) = &cfg.outdir {
+                    args.outdir = v.clone();
+                }
             }
-            if let Some(v) = &cfg.source_pdf {
-                args.source_pdf = v.clone();
+            if args.source_pdf == "./input.pdf" {
+                if let Some(v) = &cfg.source_pdf {
+                    args.source_pdf = v.clone();
+                }
             }
-            if let Some(v) = &cfg.env_file {
-                args.env_file = v.clone();
+            if args.original_pdf == "./input.pdf" {
+                if let Some(v) = &cfg.source_pdf {
+                    args.original_pdf = v.clone();
+                }
             }
-            if let Some(v) = &cfg.api_key_env {
-                args.api_key_env = v.clone();
+            if args.env_file == "./.env" {
+                if let Some(v) = &cfg.env_file {
+                    args.env_file = v.clone();
+                }
             }
-            if let Some(v) = &cfg.base_url {
-                args.base_url = v.clone();
+            if args.api_key_env == "PDF2MD_API_KEY" {
+                if let Some(v) = &cfg.api_key_env {
+                    args.api_key_env = v.clone();
+                }
             }
-            if let Some(v) = &cfg.model {
-                args.model = v.clone();
+            if args.base_url == "https://api.openai.com/v1" {
+                if let Some(v) = &cfg.base_url {
+                    args.base_url = v.clone();
+                }
+            }
+            if args.model == "gpt-4o-mini" {
+                if let Some(v) = &cfg.model {
+                    args.model = v.clone();
+                }
             }
         }
         args
@@ -65,23 +85,35 @@ impl AppConfig {
 
     pub(crate) fn ocr_or_default(&self, mut args: OcrArgs) -> OcrArgs {
         if let Some(cfg) = &self.ocr {
-            if let Some(v) = &cfg.pdf {
-                args.pdf = v.clone();
+            if args.pdf == "./input.pdf" {
+                if let Some(v) = &cfg.pdf {
+                    args.pdf = v.clone();
+                }
             }
-            if let Some(v) = &cfg.outdir {
-                args.outdir = v.clone();
+            if args.outdir == "./json" {
+                if let Some(v) = &cfg.outdir {
+                    args.outdir = v.clone();
+                }
             }
-            if let Some(v) = cfg.total {
-                args.total = v;
+            if args.total == 222 {
+                if let Some(v) = cfg.total {
+                    args.total = v;
+                }
             }
-            if let Some(v) = cfg.start {
-                args.start = v;
+            if args.start == 1 {
+                if let Some(v) = cfg.start {
+                    args.start = v;
+                }
             }
-            if let Some(v) = cfg.dpi {
-                args.dpi = v;
+            if args.dpi == 150 {
+                if let Some(v) = cfg.dpi {
+                    args.dpi = v;
+                }
             }
-            if let Some(v) = &cfg.helper {
-                args.helper = v.clone();
+            if args.helper == "scripts/ocr_helper.py" {
+                if let Some(v) = &cfg.helper {
+                    args.helper = v.clone();
+                }
             }
         }
         args

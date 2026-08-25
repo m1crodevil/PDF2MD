@@ -218,6 +218,7 @@ pub(crate) fn process_page(
     let helper_out = helper.process(&png)?;
     let layout_time = helper_out["layout_time"].as_f64().unwrap_or(0.0);
     let ocr_time = helper_out["ocr_time"].as_f64().unwrap_or(0.0);
+    let ocr_model = helper_out["ocr_model"].as_str().map(str::to_owned);
 
     // Step 4: Parse layout regions
     let mut layout_regions: Vec<LayoutRegion> = Vec::new();
@@ -330,7 +331,7 @@ pub(crate) fn process_page(
             visual_region_detected,
             review_required,
         },
-        ocr_model: None,
+        ocr_model,
         timings: Timings {
             render: render_time,
             layout: layout_time,
