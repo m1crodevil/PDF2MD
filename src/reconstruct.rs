@@ -2,6 +2,8 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc;
+use std::thread;
 use std::time::Instant;
 
 use crate::manifest::{write as write_manifest, Manifest};
@@ -54,14 +56,14 @@ OCR and layout JSON input:\n{}",
 }
 
 fn reconstruct_one(
-    json_path: &PathBuf,
-    out_path: &PathBuf,
-    api_key: &str,
-    model: &str,
-    base_url: &str,
-) -> Result<(), String> {
+    json_path: PathBuf,
+    out_path: PathBuf,
+    api_key: String,
+    model: String,
+    base_url: String,
+) -> Result<(usize, usize), String> {
     let t = Instant::now();
-    let input = fs::read_to_string(json_path)
+    let input = fs::read_to_string(&json_path)
         .map_err(|e| format!("read {}: {}", json_path.display(), e))?;
     let page_num: usize = json_path
         .file_stem()
@@ -80,11 +82,10 @@ fn reconstruct_one(
 
     let out = Command::new("curl")
         .args([
-            "-s",
-            &format!(
-                "{}/chat/completions",
-                base_url.trim_end_matches('/')
-            ),
+            "-sS",
+            "--connect-timeout", "20",
+            "--max-time", "300",
+            &format!("{}/chat/completions", base_url.trim_end_matches('/')),
             "-H",
             &format!("Authorization: Bearer {}", api_key),
             "-H",
@@ -96,10 +97,7 @@ fn reconstruct_one(
         .map_err(|e| format!("curl failed: {}", e))?;
 
     if !out.status.success() {
-        return Err(format!(
-            "curl non-zero: {}",
-            String::from_utf8_lossy(&out.stderr)
-        ));
+        return Err(format!("curl non-zero: {}", String::from_utf8_lossy(&out.stderr)));
     }
 
     let data: serde_json::Value =
@@ -107,14 +105,9 @@ fn reconstruct_one(
     let md = data["choices"][0]["message"]["content"]
         .as_str()
         .ok_or_else(|| "missing content".to_string())?;
-    fs::write(out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
-    eprintln!(
-        "[md] p{:03} {}s {} chars",
-        page_num,
-        t.elapsed().as_secs_f32(),
-        md.len()
-    );
-    Ok(())
+    fs::write(&out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
+    eprintln!("[md] p{:03} {}s {} chars", page_num, t.elapsed().as_secs_f32(), md.len());
+    Ok((page_num, md.len()))
 }
 
 fn pdf_stem(source_pdf: &str) -> String {
@@ -129,19 +122,13 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
     let api_key = load_env_key(&args.api_key_env, &args.env_file)?;
     let pdf_name = pdf_stem(&args.source_pdf);
     let bundle_root = PathBuf::from(&args.outdir).join(&pdf_name);
-    let json_root = bundle_root.join("json");
     let md_root = bundle_root.join("md");
-    fs::create_dir_all(&json_root).map_err(|e| format!("mkdir {}: {}", json_root.display(), e))?;
+    fs::create_dir_all(bundle_root.join("json")).map_err(|e| format!("mkdir {}: {}", bundle_root.join("json").display(), e))?;
     fs::create_dir_all(&md_root).map_err(|e| format!("mkdir {}: {}", md_root.display(), e))?;
     let original_copy = bundle_root.join("original.pdf");
     if !original_copy.exists() {
         fs::copy(&args.original_pdf, &original_copy).map_err(|e| {
-            format!(
-                "copy {} -> {}: {}",
-                args.original_pdf,
-                original_copy.display(),
-                e
-            )
+            format!("copy {} -> {}: {}", args.original_pdf, original_copy.display(), e)
         })?;
     }
 
@@ -149,47 +136,46 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         .map_err(|e| format!("read dir {}: {}", args.json_dir, e))?
         .flatten()
         .map(|e| e.path())
-        .filter(|p| {
-            p.file_name()
-                .and_then(|s| s.to_str())
-                .map(|s| s.starts_with("page_") && s.ends_with(".json"))
-                .unwrap_or(false)
-        })
+        .filter(|p| p.file_name().and_then(|s| s.to_str()).map(|s| s.starts_with("page_") && s.ends_with(".json")).unwrap_or(false))
         .collect();
     files.sort();
 
+    let (tx, rx) = mpsc::channel();
+    let mut active = 0usize;
+    let mut next = 0usize;
     let mut ok = 0usize;
     let mut skip = 0usize;
     let mut fail = 0usize;
+    let max_concurrency = 5usize;
 
-    for json_path in files {
-        let stem = json_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        let out_path = md_root.join(format!("{}.md", stem));
-        if out_path.exists() {
-            skip += 1;
-            continue;
+    while next < files.len() || active > 0 {
+        while active < max_concurrency && next < files.len() {
+            let json_path = files[next].clone();
+            next += 1;
+            let stem = json_path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            let out_path = md_root.join(format!("{}.md", stem));
+            if out_path.exists() { skip += 1; continue; }
+            active += 1;
+            let tx = tx.clone();
+            let api_key = api_key.clone();
+            let model = args.model.clone();
+            let base_url = args.base_url.clone();
+            thread::spawn(move || {
+                let res = reconstruct_one(json_path, out_path, api_key, model, base_url);
+                let _ = tx.send(res);
+            });
         }
-        match reconstruct_one(&json_path, &out_path, &api_key, &args.model, &args.base_url) {
-            Ok(_) => ok += 1,
-            Err(e) => {
-                fail += 1;
-                eprintln!("[md][ERR] {}: {}", json_path.display(), e);
+        if active > 0 {
+            match rx.recv().unwrap() {
+                Ok((_page, _chars)) => ok += 1,
+                Err(e) => { fail += 1; eprintln!("[md][ERR] {}", e); }
             }
+            active -= 1;
         }
     }
 
     eprintln!("=== MD DONE === ok={} skip={} fail={}", ok, skip, fail);
-    let manifest = Manifest {
-        mode: "reconstruct".to_string(),
-        input: args.json_dir.clone(),
-        output_dir: bundle_root.display().to_string(),
-        ok,
-        skipped: skip,
-        failed: fail,
-    };
-    let _ = write_manifest(
-        &format!("{}/manifest.json", bundle_root.display()),
-        &manifest,
-    );
+    let manifest = Manifest { mode: "reconstruct".to_string(), input: args.json_dir.clone(), output_dir: bundle_root.display().to_string(), ok, skipped: skip, failed: fail };
+    let _ = write_manifest(&format!("{}/manifest.json", bundle_root.display()), &manifest);
     Ok(())
 }
