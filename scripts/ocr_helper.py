@@ -41,7 +41,7 @@ def run_ocr(engine, png_path):
     elapsed = time.time() - t0
     bounds = result.get("bounds", {})
     boxes = []
-    for k, b in bounds.items():
+    for b in bounds.values():
         tl = b.get("topLeftCoord", (0, 0))
         br = b.get("bottomRightCoord", (0, 0))
         boxes.append({
@@ -51,23 +51,40 @@ def run_ocr(engine, png_path):
         })
     return {"ocr_boxes_raw": boxes, "ocr_time": round(elapsed, 1)}
 
+
+def needs_medium(layout):
+    # ponytail: table-only routing; expand labels only after measured misses justify it.
+    return any(
+        r.get("label", "").lower() == "table" and float(r.get("score", 0)) >= 0.5
+        for r in layout.get("layout_regions", [])
+    )
+
+
+def run_page(ld, engines, png_path):
+    layout = run_layout(ld, png_path)
+    size = "medium" if needs_medium(layout) else "small"
+    if size not in engines:
+        import faster_paddle
+        engines[size] = faster_paddle.OcrEngine(model_size=size, threads=8)
+    output = {"png": png_path, "ocr_model": size}
+    output.update(layout)
+    output.update(run_ocr(engines[size], png_path))
+    return output
 def main():
     args = sys.argv[1:]
 
     # ── Batch mode: init once, loop over stdin ──
     if "--batch" in args:
         from paddleocr import LayoutDetection
-        import faster_paddle
         ld = LayoutDetection()
-        engine = faster_paddle.OcrEngine(model_size="medium", threads=8)
+        engines = {}
         for line in sys.stdin:
             png_path = line.strip()
             if not png_path:
                 continue
             output = {"png": png_path}
             try:
-                output.update(run_layout(ld, png_path))
-                output.update(run_ocr(engine, png_path))
+                output = run_page(ld, engines, png_path)
             except Exception as e:
                 output["error"] = str(e)
             print(json.dumps(output, ensure_ascii=False), flush=True)
@@ -90,10 +107,13 @@ def main():
             from paddleocr import LayoutDetection
             ld = LayoutDetection()
             output.update(run_layout(ld, png_path))
-        if mode in ("ocr", "both"):
+        if mode == "ocr":
             import faster_paddle
-            engine = faster_paddle.OcrEngine(model_size="medium")
-            output.update(run_ocr(engine, png_path))
+            engines = {"medium": faster_paddle.OcrEngine(model_size="medium")}
+            output.update(run_ocr(engines["medium"], png_path))
+        elif mode == "both":
+            engines = {}
+            output.update(run_page(ld, engines, png_path))
     except Exception as e:
         output["error"] = str(e)
     print(json.dumps(output, ensure_ascii=False))
