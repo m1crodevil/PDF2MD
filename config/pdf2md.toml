@@ -1,10 +1,10 @@
 [reconstruct]
-json_dir = "./json"
-outdir = "./output"
+json_dir = "/path/to/pdf2md/data/json"
+outdir = "/path/to/pdf2md/data/md_pages"
 api_key_env = "PDF2MD_API_KEY"
-env_file = "~/.config/pdf2md/env"
+env_file = "/path/to/secrets/.env"
 base_url = "https://api.example.com/v1"
-model = "gpt-4o-mini"
+model = "combo/murah"
 
 [ocr]
 pdf = "./input.pdf"

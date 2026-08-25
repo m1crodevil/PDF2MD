@@ -33,17 +33,22 @@ fn load_env_key(api_key_env: &str, env_file: &str) -> Result<String, String> {
 
 fn build_prompt(page_num: usize, markdown_hint: &str) -> String {
     format!(
-        "You are a document reconstruction assistant for an Indonesian accounting textbook.\n\n\
-Convert the OCR JSON page to clean Markdown.\n\n\
+        "You are a universal PDF page reconstruction engine.\n\n\
+Reconstruct this PDF page as faithful, readable Markdown using only the evidence\ncontained in the supplied page JSON. The JSON may contain OCR text, confidence\nscores, bounding boxes, layout regions, region labels, and page metadata.\nStudy and interpret that structure before writing the output.\n\n\
 Rules:\n\
-- Use proper heading hierarchy (#, ##, ###)\n\
-- Reconstruct readable paragraphs from OCR fragments\n\
-- Fix obvious OCR errors without changing meaning\n\
-- Preserve Indonesian language\n\
-- Add page marker: <!-- PAGE {} -->\n\
-- Remove repeated headers/footers\n\
-- Output ONLY markdown\n\n\
-OCR JSON input:\n{}",
+- Preserve the original language; never translate.\n\
+- Preserve all meaningful text, numbers, punctuation, symbols, labels, hierarchy,\n  grouping, and reading order.\n\
+- Infer reading order from layout regions, labels, coordinates, and bounding boxes;\n  do not assume the OCR array order is the reading order.\n\
+- Detect columns, titles, headings, paragraphs, lists, tables, captions, figures,\n  footnotes, sidebars, headers, and footers from the layout evidence.\n\
+- Recreate tables as Markdown tables only when row and column relationships are\n  recoverable. Preserve lists, quotes, formulas, code, and symbolic expressions\n  with the closest suitable Markdown representation.\n\
+- Preserve meaningful line breaks; otherwise combine OCR fragments into readable\n  paragraphs without changing their content.\n\
+- Omit repeated running headers or footers only when the layout evidence clearly\n  identifies them as repeated page furniture. Keep page-specific labels and\n  numbers.\n\
+- Correct only obvious OCR spacing or segmentation errors. Never guess unreadable\n  text, numbers, formulas, names, or symbols. Never add, summarize, paraphrase,\n  interpret, or editorialize.\n\
+- Do not invent descriptions for images or diagrams; preserve available captions\n  and labels.\n\
+- Use Markdown for structural fidelity, not visual decoration.\n\
+- Add page marker exactly once: <!-- PAGE {} -->\n\
+- Output ONLY the reconstructed Markdown.\n\n\
+OCR and layout JSON input:\n{}",
         page_num, markdown_hint
     )
 }
@@ -53,6 +58,7 @@ fn reconstruct_one(
     out_path: &PathBuf,
     api_key: &str,
     model: &str,
+    base_url: &str,
 ) -> Result<(), String> {
     let t = Instant::now();
     let input = fs::read_to_string(json_path)
@@ -77,7 +83,7 @@ fn reconstruct_one(
             "-s",
             &format!(
                 "{}/chat/completions",
-                "https://api.example.com/v1".trim_end_matches('/')
+                base_url.trim_end_matches('/')
             ),
             "-H",
             &format!("Authorization: Bearer {}", api_key),
@@ -163,7 +169,7 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
             skip += 1;
             continue;
         }
-        match reconstruct_one(&json_path, &out_path, &api_key, &args.model) {
+        match reconstruct_one(&json_path, &out_path, &api_key, &args.model, &args.base_url) {
             Ok(_) => ok += 1,
             Err(e) => {
                 fail += 1;
