@@ -80,36 +80,59 @@ fn reconstruct_one(
         "temperature": 0,
     });
 
-    let out = Command::new("curl")
-        .args([
-            "-sS",
-            "--connect-timeout",
-            "20",
-            "--max-time",
-            "300",
-            &format!("{}/chat/completions", base_url.trim_end_matches('/')),
-            "-H",
-            &format!("Authorization: Bearer {}", api_key),
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            &payload.to_string(),
-        ])
-        .output()
-        .map_err(|e| format!("curl failed: {}", e))?;
-
-    if !out.status.success() {
-        return Err(format!(
-            "curl non-zero: {}",
-            String::from_utf8_lossy(&out.stderr)
-        ));
+    let mut out = None;
+    for attempt in 1..=3 {
+        let result = Command::new("curl")
+            .args([
+                "-sS",
+                "--connect-timeout",
+                "20",
+                "--max-time",
+                "300",
+                &format!("{}/chat/completions", base_url.trim_end_matches('/')),
+                "-H",
+                &format!("Authorization: Bearer {}", api_key),
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                &payload.to_string(),
+                "-w",
+                "\n%{http_code}",
+            ])
+            .output()
+            .map_err(|e| format!("curl failed: {}", e))?;
+        let stdout = String::from_utf8_lossy(&result.stdout);
+        let status = stdout
+            .rsplit_once('\n')
+            .and_then(|(_, code)| code.parse::<u16>().ok())
+            .unwrap_or(0);
+        let retryable = status == 0 || status == 408 || status == 429 || status >= 500;
+        if result.status.success() && (200..300).contains(&status) {
+            out = Some(result);
+            break;
+        }
+        if retryable && attempt < 3 {
+            thread::sleep(std::time::Duration::from_secs(attempt));
+        } else {
+            return Err(format!(
+                "HTTP {}: {}",
+                status,
+                String::from_utf8_lossy(&result.stderr)
+            ));
+        }
     }
+    let out = out.ok_or_else(|| "curl retry loop ended without response".to_string())?;
 
+    let mut body = out.stdout;
+    if let Some(index) = body.iter().rposition(|byte| *byte == b'\n') {
+        body.truncate(index);
+    }
     let data: serde_json::Value =
-        serde_json::from_slice(&out.stdout).map_err(|e| format!("parse llm json: {}", e))?;
+        serde_json::from_slice(&body).map_err(|e| format!("parse llm json: {}", e))?;
     let md = data["choices"][0]["message"]["content"]
         .as_str()
         .ok_or_else(|| "missing content".to_string())?;
+    validate_markdown(md, page_num)?;
     fs::write(&out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
     eprintln!(
         "[md] p{:03} {}s {} chars",
@@ -118,6 +141,30 @@ fn reconstruct_one(
         md.len()
     );
     Ok((page_num, md.len()))
+}
+
+fn validate_markdown(markdown: &str, page_num: usize) -> Result<(), String> {
+    let text = markdown.trim();
+    let marker = format!("<!-- PAGE {} -->", page_num);
+    let content = text
+        .lines()
+        .filter(|line| line.trim() != marker)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if text.is_empty() || content.trim().is_empty() {
+        return Err(format!(
+            "quality validation: page {} contains only a marker or whitespace",
+            page_num
+        ));
+    }
+    Ok(())
+}
+
+fn valid_existing_output(path: &Path, page_num: usize) -> bool {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|text| validate_markdown(&text, page_num).ok())
+        .is_some()
 }
 
 fn pdf_stem(source_pdf: &str) -> String {
@@ -167,6 +214,7 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
     let mut ok = 0usize;
     let mut skip = 0usize;
     let mut fail = 0usize;
+    let mut quality_failed = 0usize;
     let max_concurrency = 5usize;
 
     while next < files.len() || active > 0 {
@@ -178,8 +226,12 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_string();
+            let page_num = stem
+                .strip_prefix("page_")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
             let out_path = md_root.join(format!("{}.md", stem));
-            if out_path.exists() {
+            if out_path.exists() && valid_existing_output(&out_path, page_num) {
                 skip += 1;
                 continue;
             }
@@ -197,6 +249,9 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
             match rx.recv() {
                 Ok(Ok((_page, _chars))) => ok += 1,
                 Ok(Err(e)) => {
+                    if e.starts_with("quality validation:") {
+                        quality_failed += 1;
+                    }
                     fail += 1;
                     eprintln!("[md][ERR] {}", e);
                 }
@@ -209,7 +264,10 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         }
     }
 
-    eprintln!("=== MD DONE === ok={} skip={} fail={}", ok, skip, fail);
+    eprintln!(
+        "=== MD DONE === ok={} skip={} fail={} quality_failed={}",
+        ok, skip, fail, quality_failed
+    );
     let manifest = Manifest {
         mode: "reconstruct".to_string(),
         input: args.json_dir.clone(),
@@ -217,6 +275,7 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         ok,
         skipped: skip,
         failed: fail,
+        quality_failed,
     };
     write_manifest(
         &format!("{}/manifest.json", bundle_root.display()),

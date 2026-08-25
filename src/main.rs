@@ -76,7 +76,10 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
             Err(e) => {
                 errors += 1;
                 print_error(page_num, &e);
-                write_error_stub(&json_path, page_num, &e)?;
+                if let Err(write_error) = write_error_stub(&json_path, page_num, &e) {
+                    let _ = fs::remove_dir_all(&tmp_root);
+                    return Err(write_error);
+                }
             }
         }
     }
@@ -89,6 +92,13 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
         errors,
         &cli.outdir,
     );
+    if let Err(e) = fs::remove_dir_all(&tmp_root) {
+        eprintln!(
+            "WARNING: cleanup temp directory {}: {}",
+            tmp_root.display(),
+            e
+        );
+    }
     Ok(())
 }
 

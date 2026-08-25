@@ -9,6 +9,7 @@ pub(crate) struct Manifest {
     pub ok: usize,
     pub skipped: usize,
     pub failed: usize,
+    pub quality_failed: usize,
 }
 
 pub(crate) fn write(path: &str, m: &Manifest) -> Result<(), String> {
