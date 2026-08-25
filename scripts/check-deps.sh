@@ -8,4 +8,15 @@ need curl
 need pdftoppm
 need python3
 
-echo "ok: cargo curl pdftoppm python3"
+python3 - <<'PY'
+import importlib.util
+import sys
+
+missing = [name for name in ("paddleocr", "faster_paddle")
+           if importlib.util.find_spec(name) is None]
+if missing:
+    print("missing Python packages: " + ", ".join(missing))
+    sys.exit(1)
+PY
+
+echo "ok: cargo curl pdftoppm python3 paddleocr faster_paddle"
