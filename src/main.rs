@@ -19,14 +19,20 @@ use reconstruct::run as run_reconstruct;
 use report::*;
 use types::{BatchHelper, Cli, Commands, OcrArgs};
 
-fn run_ocr(cli: &OcrArgs) {
+fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
     let total = cli.end.unwrap_or(cli.total);
+    if cli.start == 0 || cli.start > total {
+        return Err(format!("invalid page range: {}..{}", cli.start, total));
+    }
 
     print_init(&cli.pdf, cli.start, total, &cli.outdir);
 
-    fs::create_dir_all(&cli.outdir).ok();
-    let tmp_dir = "/tmp/aa_pages";
-    fs::create_dir_all(tmp_dir).ok();
+    fs::create_dir_all(&cli.outdir)
+        .map_err(|e| format!("create output directory {}: {}", cli.outdir, e))?;
+    let tmp_root = std::env::temp_dir().join(format!("pdf2md-{}", std::process::id()));
+    fs::create_dir_all(&tmp_root)
+        .map_err(|e| format!("create temp directory {}: {}", tmp_root.display(), e))?;
+    let tmp_dir = tmp_root.to_string_lossy().into_owned();
 
     let regex_fixes = RegexFixes::new();
     let mut helper = BatchHelper::new(&cli.helper).unwrap_or_else(|e| {
@@ -46,7 +52,7 @@ fn run_ocr(cli: &OcrArgs) {
             continue;
         }
 
-        match process_page(cli, page_num, tmp_dir, &regex_fixes, &mut helper) {
+        match process_page(cli, page_num, &tmp_dir, &regex_fixes, &mut helper) {
             Ok(page_json) => match write_page_json(&json_path, &page_json) {
                 Ok(_) => {
                     let elapsed = start_time.elapsed().as_secs_f64();
@@ -70,7 +76,7 @@ fn run_ocr(cli: &OcrArgs) {
             Err(e) => {
                 errors += 1;
                 print_error(page_num, &e);
-                write_error_stub(&json_path, page_num, &e);
+                write_error_stub(&json_path, page_num, &e)?;
             }
         }
     }
@@ -83,6 +89,7 @@ fn run_ocr(cli: &OcrArgs) {
         errors,
         &cli.outdir,
     );
+    Ok(())
 }
 
 fn main() {
@@ -90,7 +97,14 @@ fn main() {
     let cfg = load_config("config/pdf2md.toml").ok();
     match cli.command {
         Commands::Ocr(args) => {
-            run_ocr(&args);
+            if let Err(e) = run_ocr(
+                &cfg.as_ref()
+                    .map(|c| c.ocr_or_default(args.clone()))
+                    .unwrap_or(args),
+            ) {
+                eprintln!("FATAL: {}", e);
+                std::process::exit(1);
+            }
         }
         Commands::Reconstruct(args) => {
             let args = cfg
