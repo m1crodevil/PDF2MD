@@ -4,34 +4,21 @@ use regex::Regex;
 
 pub(crate) struct RegexFixes {
     double_space: Regex,
-    broken_emdash: Regex,
-    stray_pipes: Regex,
-    stray_tildes: Regex,
-    o_before_halaman: Regex,
     broken_newlines: Regex,
 }
 
 impl RegexFixes {
     pub(crate) fn new() -> Self {
         Self {
-            double_space: Regex::new(r"  +").unwrap(),
-            broken_emdash: Regex::new(r"(\w)\s-\s(\w)").unwrap(),
-            stray_pipes: Regex::new(r"\s*[|]+\s*").unwrap(),
-            stray_tildes: Regex::new(r"\s*[~]+\s*").unwrap(),
-            // ponytail: regex crate has no lookahead — match full pattern, replace with capture
-            o_before_halaman: Regex::new(r"(?i)\b0(\s*(?:halaman|page))").unwrap(),
-            // ponytail: join broken lines is handled per-box, not cross-box
-            broken_newlines: Regex::new(r"(\w)\s\n\s*(\w)").unwrap(),
+            double_space: Regex::new(r"[ \t]{2,}").unwrap(),
+            // ponytail: join only within one OCR box; cross-box reading order belongs to layout code.
+            broken_newlines: Regex::new(r"(\p{L}|\p{N})\s*\n\s*(\p{L}|\p{N})").unwrap(),
         }
     }
 
     pub(crate) fn apply(&self, text: &str) -> String {
         let mut s = text.to_string();
         s = self.double_space.replace_all(&s, " ").to_string();
-        s = self.broken_emdash.replace_all(&s, "$1 — $2").to_string();
-        s = self.stray_pipes.replace_all(&s, " ").to_string();
-        s = self.stray_tildes.replace_all(&s, " ").to_string();
-        s = self.o_before_halaman.replace_all(&s, "O$1").to_string();
         s = self.broken_newlines.replace_all(&s, "$1 $2").to_string();
         s.trim().to_string()
     }
@@ -39,4 +26,24 @@ impl RegexFixes {
 
 pub(crate) fn round1(v: f64) -> f64 {
     (v * 10.0).round() / 10.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RegexFixes;
+
+    #[test]
+    fn cleanup_is_language_and_symbol_preserving() {
+        let fixes = RegexFixes::new();
+        assert_eq!(fixes.apply("  Hello   world  "), "Hello world");
+        assert_eq!(fixes.apply("line\n\nbreak"), "line break");
+        assert_eq!(
+            fixes.apply("0 halaman | x ~ y - z"),
+            "0 halaman | x ~ y - z"
+        );
+        assert_eq!(
+            fixes.apply("日本語   текст  العربية"),
+            "日本語 текст العربية"
+        );
+    }
 }
