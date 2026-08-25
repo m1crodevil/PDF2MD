@@ -8,7 +8,9 @@ use std::time::Instant;
 use serde_json::Value;
 
 use crate::cleanup::{round1, RegexFixes};
-use crate::types::{BatchHelper, LayoutRegion, OcrBox, PageJson, RegionTextBox, Timings};
+use crate::types::{
+    BatchHelper, LayoutRegion, OcrBox, PageJson, PageQuality, RegionTextBox, Timings,
+};
 
 // ─── Page rendering ───
 
@@ -198,6 +200,10 @@ pub(crate) fn process_page(
             dpi: cli.dpi,
             layout_regions: Vec::new(),
             ocr_boxes: Vec::new(),
+            reading_order: Vec::new(),
+            risk_flags: vec!["blank".to_string()],
+            quality: PageQuality::default(),
+            ocr_model: None,
             timings: Timings {
                 render: render_time,
                 layout: 0.0,
@@ -253,6 +259,59 @@ pub(crate) fn process_page(
     // Step 6: Map OCR boxes to layout regions
     map_ocr_to_regions(&mut layout_regions, &ocr_boxes);
 
+    let mut reading_order: Vec<usize> = (0..layout_regions.len()).collect();
+    reading_order.sort_by(|a, b| {
+        layout_regions[*a].bbox[1]
+            .partial_cmp(&layout_regions[*b].bbox[1])
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                layout_regions[*a].bbox[0]
+                    .partial_cmp(&layout_regions[*b].bbox[0])
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+    });
+    let text_chars = ocr_boxes.iter().map(|b| b.text.chars().count()).sum();
+    let mean_confidence = if ocr_boxes.is_empty() {
+        0.0
+    } else {
+        ocr_boxes.iter().map(|b| b.confidence).sum::<f64>() / ocr_boxes.len() as f64
+    };
+    let low_count = ocr_boxes.iter().filter(|b| b.confidence < 0.5).count();
+    let table_detected = layout_regions
+        .iter()
+        .any(|r| r.label.eq_ignore_ascii_case("table") && r.score >= 0.5);
+    let visual_region_detected = layout_regions.iter().any(|r| {
+        matches!(
+            r.label.to_ascii_lowercase().as_str(),
+            "figure" | "chart" | "diagram" | "image"
+        )
+    });
+    let mut risk_flags = Vec::new();
+    if table_detected {
+        risk_flags.push("table_detected".to_string());
+    }
+    if visual_region_detected {
+        risk_flags.push("visual_object".to_string());
+    }
+    if low_count > 0 {
+        risk_flags.push("low_confidence".to_string());
+    }
+    if layout_regions.len() > 1
+        && reading_order.windows(2).any(|w| {
+            layout_regions[w[0]].bbox[0] > layout_regions[w[1]].bbox[0]
+                && (layout_regions[w[0]].bbox[1] - layout_regions[w[1]].bbox[1]).abs() < 20.0
+        })
+    {
+        risk_flags.push("ambiguous_reading_order".to_string());
+    }
+    let review_required = !risk_flags.is_empty();
+    let ocr_box_count = ocr_boxes.len();
+    let low_confidence_ratio = if ocr_box_count == 0 {
+        0.0
+    } else {
+        low_count as f64 / ocr_box_count as f64
+    };
+
     Ok(PageJson {
         page: page_num,
         blank: false,
@@ -260,6 +319,18 @@ pub(crate) fn process_page(
         dpi: cli.dpi,
         layout_regions,
         ocr_boxes,
+        reading_order,
+        risk_flags,
+        quality: PageQuality {
+            text_chars,
+            ocr_box_count,
+            mean_confidence: round1(mean_confidence),
+            low_confidence_ratio,
+            table_detected,
+            visual_region_detected,
+            review_required,
+        },
+        ocr_model: None,
         timings: Timings {
             render: render_time,
             layout: layout_time,

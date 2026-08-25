@@ -126,7 +126,26 @@ pub(crate) struct PageJson {
     pub dpi: u32,
     pub layout_regions: Vec<LayoutRegion>,
     pub ocr_boxes: Vec<OcrBox>,
+    #[serde(default)]
+    pub reading_order: Vec<usize>,
+    #[serde(default)]
+    pub risk_flags: Vec<String>,
+    #[serde(default)]
+    pub quality: PageQuality,
+    #[serde(default)]
+    pub ocr_model: Option<String>,
     pub timings: Timings,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub(crate) struct PageQuality {
+    pub text_chars: usize,
+    pub ocr_box_count: usize,
+    pub mean_confidence: f64,
+    pub low_confidence_ratio: f64,
+    pub table_detected: bool,
+    pub visual_region_detected: bool,
+    pub review_required: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

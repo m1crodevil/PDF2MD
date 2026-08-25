@@ -7,6 +7,7 @@ use std::thread;
 use std::time::Instant;
 
 use crate::manifest::{write as write_manifest, Manifest};
+use crate::types::PageJson;
 use crate::types::ReconstructArgs;
 
 fn load_env_key(api_key_env: &str, env_file: &str) -> Result<String, String> {
@@ -133,6 +134,7 @@ fn reconstruct_one(
         .as_str()
         .ok_or_else(|| "missing content".to_string())?;
     validate_markdown(md, page_num)?;
+    validate_retention(&input, md, page_num)?;
     fs::write(&out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
     eprintln!(
         "[md] p{:03} {}s {} chars",
@@ -154,6 +156,38 @@ fn validate_markdown(markdown: &str, page_num: usize) -> Result<(), String> {
     if text.is_empty() || content.trim().is_empty() {
         return Err(format!(
             "quality validation: page {} contains only a marker or whitespace",
+            page_num
+        ));
+    }
+    if !text.contains(&marker) {
+        return Err(format!(
+            "quality validation: page {} is missing page marker",
+            page_num
+        ));
+    }
+    Ok(())
+}
+
+fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<(), String> {
+    let source: PageJson =
+        serde_json::from_str(input).map_err(|e| format!("parse page JSON: {}", e))?;
+    let source_numbers = input
+        .split_whitespace()
+        .filter(|s| s.chars().any(|c| c.is_ascii_digit()))
+        .count();
+    let output_numbers = markdown
+        .split_whitespace()
+        .filter(|s| s.chars().any(|c| c.is_ascii_digit()))
+        .count();
+    if source_numbers >= 3 && output_numbers * 2 < source_numbers {
+        return Err(format!(
+            "quality validation: page {} lost too many numeric tokens",
+            page_num
+        ));
+    }
+    if source.quality.table_detected && !markdown.contains('|') {
+        return Err(format!(
+            "quality validation: page {} detected a table but output has no table structure",
             page_num
         ));
     }
@@ -215,7 +249,22 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
     let mut skip = 0usize;
     let mut fail = 0usize;
     let mut quality_failed = 0usize;
+    let mut review_required = 0usize;
+    let mut vlm_candidates = 0usize;
     let max_concurrency = 5usize;
+
+    for json_path in &files {
+        if let Ok(text) = fs::read_to_string(json_path) {
+            if let Ok(page) = serde_json::from_str::<PageJson>(&text) {
+                if page.quality.review_required {
+                    review_required += 1;
+                }
+                if page.risk_flags.iter().any(|f| f == "visual_object") {
+                    vlm_candidates += 1;
+                }
+            }
+        }
+    }
 
     while next < files.len() || active > 0 {
         while active < max_concurrency && next < files.len() {
@@ -265,9 +314,22 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
     }
 
     eprintln!(
-        "=== MD DONE === ok={} skip={} fail={} quality_failed={}",
-        ok, skip, fail, quality_failed
+        "=== MD DONE === ok={} skip={} fail={} quality_failed={} review_required={} vlm_candidates={}",
+        ok, skip, fail, quality_failed, review_required, vlm_candidates
     );
+    let mut merged = String::new();
+    for page in &files {
+        let stem = page.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let output = md_root.join(format!("{}.md", stem));
+        if let Ok(text) = fs::read_to_string(output) {
+            merged.push_str(&text);
+            merged.push_str("\n\n");
+        }
+    }
+    if !merged.trim().is_empty() {
+        fs::write(bundle_root.join("document.md"), merged)
+            .map_err(|e| format!("write document.md: {}", e))?;
+    }
     let manifest = Manifest {
         mode: "reconstruct".to_string(),
         input: args.json_dir.clone(),
@@ -276,6 +338,8 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         skipped: skip,
         failed: fail,
         quality_failed,
+        review_required,
+        vlm_candidates,
     };
     write_manifest(
         &format!("{}/manifest.json", bundle_root.display()),
