@@ -1,0 +1,15 @@
+[reconstruct]
+json_dir = "./json"
+outdir = "./output"
+api_key_env = "PDF2MD_API_KEY"
+env_file = "~/.config/pdf2md/env"
+base_url = "https://api.example.com/v1"
+model = "gpt-4o-mini"
+
+[ocr]
+pdf = "./input.pdf"
+outdir = "./json"
+total = 222
+start = 1
+dpi = 150
+helper = "scripts/ocr_helper.py"

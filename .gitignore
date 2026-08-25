@@ -1,0 +1,8 @@
+target/
+md_pages/
+json/
+*.apkg
+*.sqlite
+*.db
+*.log
+.DS_Store
