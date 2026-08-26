@@ -33,9 +33,9 @@ pub(crate) struct OcrArgs {
     #[arg(long, default_value = "./json")]
     pub outdir: String,
 
-    /// Total pages to process
-    #[arg(long, default_value_t = 222)]
-    pub total: usize,
+    /// Total pages to process (defaults to the PDF's page count)
+    #[arg(long)]
+    pub total: Option<usize>,
 
     /// Start page (1-indexed)
     #[arg(long, default_value_t = 1)]
@@ -128,6 +128,8 @@ pub(crate) struct RegionTextBox {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct PageJson {
+    #[serde(default = "default_page_status")]
+    pub status: String,
     pub page: usize,
     pub blank: bool,
     pub png: Option<String>,
@@ -143,6 +145,10 @@ pub(crate) struct PageJson {
     #[serde(default)]
     pub ocr_model: Option<String>,
     pub timings: Timings,
+}
+
+fn default_page_status() -> String {
+    "success".to_string()
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]

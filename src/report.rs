@@ -81,21 +81,6 @@ pub(crate) fn print_summary(
     eprintln!("Output: {} ({} files)", outdir, files);
 }
 
-pub(crate) fn write_error_stub(
-    json_path: &str,
-    page_num: usize,
-    error: &str,
-) -> Result<(), String> {
-    let stub = serde_json::json!({
-        "page": page_num,
-        "error": error,
-        "layout_regions": [],
-        "ocr_boxes": []
-    });
-    fs::write(json_path, stub.to_string())
-        .map_err(|e| format!("write error stub {}: {}", json_path, e))
-}
-
 pub(crate) fn json_exists(json_path: &str) -> bool {
     Path::new(json_path).exists()
 }

@@ -13,7 +13,6 @@ pub(crate) struct AppConfig {
 pub(crate) struct OcrCfg {
     pub pdf: Option<String>,
     pub outdir: Option<String>,
-    pub total: Option<usize>,
     pub start: Option<usize>,
     pub dpi: Option<u32>,
     pub helper: Option<String>,
@@ -116,11 +115,6 @@ impl AppConfig {
             if args.outdir == "./json" {
                 if let Some(v) = &cfg.outdir {
                     args.outdir = v.clone();
-                }
-            }
-            if args.total == 222 {
-                if let Some(v) = cfg.total {
-                    args.total = v;
                 }
             }
             if args.start == 1 {

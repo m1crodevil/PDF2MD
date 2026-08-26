@@ -48,6 +48,11 @@ cargo build --release
 ./target/release/pdf2md --help
 ```
 
+OCR discovers the PDF page count automatically. `--total` is an optional explicit
+upper bound and must not exceed the actual PDF page count; `--start` and `--end`
+are validated before rendering begins. Any page error makes the OCR command exit
+non-zero, and failed pages are not written as fake JSON results.
+
 Check local dependencies:
 
 ```bash
@@ -141,6 +146,8 @@ Current checks include:
 - a page detected as a table must produce a Markdown table structure;
 - existing output is resumed only when it passes validation;
 - transient request failures are retried, while non-transient HTTP errors are not blindly retried.
+- malformed, mismatched, or non-success OCR page JSON is rejected before an LLM request;
+- reconstruction exits non-zero when one or more pages fail, while still writing its manifest.
 
 Risk flags do not automatically invoke a VLM. They identify pages for review or a future selective VLM route. In particular, `vlm_candidates` means that a visual object was detected; it does not mean the visual object has already been understood.
 

@@ -6,11 +6,27 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::manifest::{write as write_manifest, Manifest};
 use crate::types::PageJson;
 use crate::types::ReconstructArgs;
+
+#[derive(Deserialize)]
+struct CompletionResponse {
+    choices: Vec<CompletionChoice>,
+}
+
+#[derive(Deserialize)]
+struct CompletionChoice {
+    message: CompletionMessage,
+}
+
+#[derive(Deserialize)]
+struct CompletionMessage {
+    content: Option<String>,
+}
 
 fn load_env_key(api_key_env: &str, env_file: &str) -> Result<String, String> {
     if let Ok(v) = env::var(api_key_env) {
@@ -197,11 +213,13 @@ fn reconstruct_one(
     if let Some(index) = body.iter().rposition(|byte| *byte == b'\n') {
         body.truncate(index);
     }
-    let data: serde_json::Value =
-        serde_json::from_slice(&body).map_err(|e| format!("parse llm json: {}", e))?;
-    let md = data["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| "missing content".to_string())?;
+    let data: CompletionResponse =
+        serde_json::from_slice(&body).map_err(|e| format!("parse llm response: {}", e))?;
+    let md = data
+        .choices
+        .first()
+        .and_then(|choice| choice.message.content.as_deref())
+        .ok_or_else(|| "missing choices[0].message.content".to_string())?;
     if let Err(first) =
         validate_markdown(md, page_num).and_then(|_| validate_retention(&input, md, page_num))
     {
@@ -245,6 +263,9 @@ fn validate_markdown(markdown: &str, page_num: usize) -> Result<(), String> {
 fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<(), String> {
     let source: PageJson =
         serde_json::from_str(input).map_err(|e| format!("parse page JSON: {}", e))?;
+    if source.status != "success" {
+        return Err(format!("page {} is not a successful OCR result", page_num));
+    }
     // layout_regions.text_combined duplicates ocr_boxes text; count boxes only
     let source_numbers = source
         .ocr_boxes
@@ -375,6 +396,32 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
                 .and_then(|value| value.parse::<usize>().ok())
                 .unwrap_or(0);
             let out_path = md_root.join(format!("{}.md", stem));
+            let input = match fs::read_to_string(&json_path) {
+                Ok(value) => value,
+                Err(e) => {
+                    fail += 1;
+                    eprintln!("[md][ERR] read {}: {}", json_path.display(), e);
+                    continue;
+                }
+            };
+            match serde_json::from_str::<PageJson>(&input) {
+                Ok(page) if page.status == "success" && page.page == page_num => {}
+                Ok(page) => {
+                    fail += 1;
+                    eprintln!(
+                        "[md][ERR] {} is not a successful page result (status={}, page={})",
+                        json_path.display(),
+                        page.status,
+                        page.page
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    fail += 1;
+                    eprintln!("[md][ERR] invalid JSON {}: {}", json_path.display(), e);
+                    continue;
+                }
+            }
             if out_path.exists() && valid_existing_output(&out_path, page_num) {
                 skip += 1;
                 continue;
@@ -451,6 +498,9 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         &manifest,
     )
     .map_err(|e| format!("write manifest: {}", e))?;
+    if fail > 0 {
+        return Err(format!("reconstruct completed with {} page failures", fail));
+    }
     Ok(())
 }
 

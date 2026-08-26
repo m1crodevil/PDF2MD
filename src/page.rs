@@ -54,18 +54,7 @@ pub(crate) fn render_page(
     } else if alt.exists() {
         alt
     } else {
-        // Search for any page-*.png that was just created
-        let mut found = None;
-        if let Ok(entries) = fs::read_dir(tmp_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("page-") && name.ends_with(".png") {
-                    found = Some(entry.path());
-                    break;
-                }
-            }
-        }
-        found.ok_or("pdftoppm output not found")?
+        return Err(format!("pdftoppm output not found for page {}", page_num));
     };
     if src != png {
         fs::rename(&src, &png).ok();
@@ -192,6 +181,7 @@ pub(crate) fn process_page(
     // Step 2: Blank check
     if is_blank_image(&png) {
         return Ok(PageJson {
+            status: "success".to_string(),
             page: page_num,
             blank: true,
             png: Some(png.display().to_string()),
@@ -312,6 +302,7 @@ pub(crate) fn process_page(
     };
 
     Ok(PageJson {
+        status: "success".to_string(),
         page: page_num,
         blank: false,
         png: Some(png.display().to_string()),

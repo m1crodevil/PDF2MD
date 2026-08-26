@@ -20,8 +20,19 @@ use report::*;
 use types::{BatchHelper, Cli, Commands, OcrArgs};
 
 fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
-    let total = cli.end.unwrap_or(cli.total);
-    if cli.start == 0 || cli.start > total {
+    let pdf_total = pdf_page_count(&cli.pdf)?;
+    let configured_total = cli.total.unwrap_or(pdf_total);
+    if configured_total == 0 || configured_total > pdf_total {
+        return Err(format!(
+            "invalid total {} for PDF with {} pages",
+            configured_total, pdf_total
+        ));
+    }
+    let total = cli.end.unwrap_or(configured_total);
+    if cli.start == 0 || cli.start > total || total > configured_total {
+        return Err(format!("invalid page range: {}..{}", cli.start, total));
+    }
+    if total < cli.start {
         return Err(format!("invalid page range: {}..{}", cli.start, total));
     }
 
@@ -76,10 +87,6 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
             Err(e) => {
                 errors += 1;
                 print_error(page_num, &e);
-                if let Err(write_error) = write_error_stub(&json_path, page_num, &e) {
-                    let _ = fs::remove_dir_all(&tmp_root);
-                    return Err(write_error);
-                }
             }
         }
     }
@@ -99,7 +106,27 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
             e
         );
     }
+    if errors > 0 {
+        return Err(format!("OCR completed with {} page errors", errors));
+    }
     Ok(())
+}
+
+fn pdf_page_count(pdf: &str) -> Result<usize, String> {
+    let output = std::process::Command::new("pdfinfo")
+        .arg(pdf)
+        .output()
+        .map_err(|e| format!("pdfinfo failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "pdfinfo error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("Pages:")?.trim().parse().ok())
+        .ok_or_else(|| "pdfinfo output has no Pages field".to_string())
 }
 
 fn main() {
