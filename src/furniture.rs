@@ -23,7 +23,7 @@ pub(crate) fn annotate_directory(input: &str) -> Result<(), String> {
         for b in page
             .ocr_boxes
             .iter()
-            .filter(|b| is_edge(b, &page.ocr_boxes))
+            .filter(|b| is_edge(b, &page.ocr_boxes) && eligible_candidate(&b.text))
         {
             seen.insert(normalize(&b.text));
         }
@@ -37,8 +37,8 @@ pub(crate) fn annotate_directory(input: &str) -> Result<(), String> {
         let mut furniture = Vec::new();
         let mut retained = Vec::new();
         for (idx, b) in page.ocr_boxes.iter().enumerate() {
-            let repeated = frequency.get(&normalize(&b.text)).copied().unwrap_or(0) >= 2;
-            if is_edge(b, &page.ocr_boxes) && repeated {
+            let repeated = frequency.get(&normalize(&b.text)).copied().unwrap_or(0) >= 3;
+            if is_edge(b, &page.ocr_boxes) && eligible_candidate(&b.text) && repeated {
                 furniture.push(FurnitureAnnotation {
                     text: b.text.clone(),
                     role: "repeated_page_furniture_candidate".into(),
@@ -63,6 +63,13 @@ fn normalize(text: &str) -> String {
         .join(" ")
         .to_lowercase()
 }
+fn eligible_candidate(text: &str) -> bool {
+    let normalized = normalize(text);
+    normalized.chars().count() >= 8
+        && normalized.split_whitespace().count() >= 2
+        && normalized.chars().any(|c| c.is_alphabetic())
+}
+
 fn is_edge(b: &OcrBox, boxes: &[OcrBox]) -> bool {
     let min = boxes
         .iter()

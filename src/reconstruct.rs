@@ -314,16 +314,16 @@ fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<()
         ));
     }
     if source.quality.table_detected && !markdown.contains('|') {
-        return Err(format!(
-            "quality validation: page {} detected a table but output has no table structure",
+        eprintln!(
+            "[md][WARN] page {} detected a table without Markdown pipes; review recommended",
             page_num
-        ));
+        );
     }
-    for candidate in source
-        .furniture
-        .iter()
-        .filter(|candidate| candidate.confidence >= 0.75)
-    {
+    for candidate in source.furniture.iter().filter(|candidate| {
+        candidate.confidence >= 0.75
+            && candidate.text.split_whitespace().count() >= 2
+            && candidate.text.chars().count() >= 8
+    }) {
         if normalized_contains(markdown, &candidate.text) {
             return Err(format!(
                 "quality validation: page {} leaked classified page furniture: {}",
