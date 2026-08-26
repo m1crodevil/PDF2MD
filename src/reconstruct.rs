@@ -313,6 +313,32 @@ fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<()
             page_num
         ));
     }
+    for candidate in source
+        .furniture
+        .iter()
+        .filter(|candidate| candidate.confidence >= 0.75)
+    {
+        let candidate_text = candidate
+            .text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let output_text = markdown.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !candidate_text.is_empty() && output_text.contains(&candidate_text) {
+            return Err(format!(
+                "quality validation: page {} leaked classified page furniture: {}",
+                page_num, candidate.text
+            ));
+        }
+    }
+    if let Some(retained) = source.filtered_ocr_boxes.as_ref() {
+        if retained.is_empty() && !source.ocr_boxes.is_empty() {
+            return Err(format!(
+                "quality validation: page {} filtered every OCR box",
+                page_num
+            ));
+        }
+    }
     Ok(())
 }
 
