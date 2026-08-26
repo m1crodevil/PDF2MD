@@ -104,7 +104,9 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
 
 fn main() {
     let cli = Cli::parse();
-    let cfg = load_config("config/pdf2md.toml").ok();
+    let cfg = load_config("config/pdf2md.local.toml")
+        .or_else(|_| load_config("config/pdf2md.toml"))
+        .ok();
     match cli.command {
         Commands::Ocr(args) => {
             if let Err(e) = run_ocr(

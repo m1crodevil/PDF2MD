@@ -2,6 +2,7 @@ target/
 md_pages/
 json/
 output/
+config/*.local.toml
 .env
 .env.*
 !.env.example

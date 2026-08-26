@@ -94,9 +94,7 @@ pub(crate) fn is_blank_image(png: &Path) -> bool {
 
 impl BatchHelper {
     pub(crate) fn new(helper: &str) -> Result<Self, String> {
-        let py = std::env::var("PYTHON").unwrap_or_else(|_| {
-            "/path/to/secrets/hermes-agent/venv/bin/python3".to_string()
-        });
+        let py = std::env::var("PYTHON").unwrap_or_else(|_| "python3".to_string());
         let mut child = Command::new(&py)
             .arg(helper)
             .arg("--batch")
