@@ -83,9 +83,24 @@ Secrets stay local:
 - keep your real API key in `.env` or another local env file;
 - do not commit `.env`;
 - commit `.env.example` as the template for required variable names;
-- `reconstruct` now fails fast if `base_url` is missing instead of falling back to a placeholder endpoint.
+- `reconstruct` now fails fast if `base_url` or model is missing instead of falling back to a placeholder endpoint;
+- model, endpoint, concurrency, and reasoning mode can be supplied through environment/config rather than hardcoded in Rust.
 
-`reconstruct` expects `curl` plus a valid LLM endpoint and API key supplied through the configured environment. Do not commit credentials.
+Example local values:
+
+```dotenv
+PDF2MD_MODEL=cx/gpt-5.6-luna
+PDF2MD_BASE_URL=https://api.example.com/v1
+PDF2MD_REASONING_EFFORT=none
+```
+
+Run with bounded parallelism:
+
+```bash
+pdf2md reconstruct --concurrency 2
+```
+
+`reconstruct` expects `curl` plus a valid LLM endpoint and API key supplied through the configured environment. It reads only `message.content`; provider reasoning fields are never treated as Markdown. HTTP 402 stops retries; transient network/429/5xx failures are retried. Do not commit credentials.
 
 ## Upstream projects
 

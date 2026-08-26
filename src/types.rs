@@ -85,8 +85,16 @@ pub(crate) struct ReconstructArgs {
     pub base_url: String,
 
     /// Model slug
-    #[arg(long, default_value = "gpt-4o-mini")]
+    #[arg(long, default_value = "")]
     pub model: String,
+
+    /// Maximum parallel LLM requests
+    #[arg(long, default_value_t = 2)]
+    pub concurrency: usize,
+
+    /// Provider reasoning effort (best effort; output always comes from content)
+    #[arg(long, default_value = "none")]
+    pub reasoning_effort: String,
 }
 
 // ─── JSON output schema ───

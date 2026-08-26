@@ -28,6 +28,8 @@ pub(crate) struct ReconstructCfg {
     pub env_file: Option<String>,
     pub base_url: Option<String>,
     pub model: Option<String>,
+    pub concurrency: Option<usize>,
+    pub reasoning_effort: Option<String>,
 }
 
 pub(crate) fn load(path: &str) -> Result<AppConfig, String> {
@@ -74,10 +76,31 @@ impl AppConfig {
                     args.base_url = v.clone();
                 }
             }
-            if args.model == "gpt-4o-mini" {
+            if args.model.is_empty() {
                 if let Some(v) = &cfg.model {
                     args.model = v.clone();
                 }
+            }
+            if args.concurrency == 2 {
+                if let Some(v) = cfg.concurrency {
+                    args.concurrency = v.max(1);
+                }
+            }
+            if args.reasoning_effort == "none" {
+                if let Some(v) = &cfg.reasoning_effort {
+                    args.reasoning_effort = v.clone();
+                }
+            }
+        }
+        if args.model.is_empty() {
+            args.model = std::env::var("PDF2MD_MODEL").unwrap_or_default();
+        }
+        if args.base_url.is_empty() {
+            args.base_url = std::env::var("PDF2MD_BASE_URL").unwrap_or_default();
+        }
+        if args.reasoning_effort == "none" {
+            if let Ok(v) = std::env::var("PDF2MD_REASONING_EFFORT") {
+                args.reasoning_effort = v;
             }
         }
         args

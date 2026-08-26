@@ -34,6 +34,26 @@ fn load_env_key(api_key_env: &str, env_file: &str) -> Result<String, String> {
     Err(format!("{} not found in env or file", api_key_env))
 }
 
+fn load_env_value(name: &str, env_file: &str) -> Option<String> {
+    if let Ok(value) = env::var(name) {
+        if !value.trim().is_empty() {
+            return Some(value);
+        }
+    }
+    let path = env_file.strip_prefix("~/").map_or_else(
+        || env_file.to_string(),
+        |rest| format!("{}/{}", env::var("HOME").unwrap_or_default(), rest),
+    );
+    fs::read_to_string(path)
+        .ok()?
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            (key.trim() == name).then(|| value.trim().trim_matches('"').to_string())
+        })
+        .filter(|value| !value.trim().is_empty())
+}
+
 fn build_prompt(page_num: usize, markdown_hint: &str) -> String {
     format!(
         "You are a universal PDF page reconstruction engine.\n\n\
@@ -62,6 +82,7 @@ fn reconstruct_one(
     api_key: String,
     model: String,
     base_url: String,
+    reasoning_effort: String,
 ) -> Result<(usize, usize), String> {
     let t = Instant::now();
     let input = fs::read_to_string(&json_path)
@@ -79,6 +100,7 @@ fn reconstruct_one(
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 4000,
         "temperature": 0,
+        "reasoning_effort": reasoning_effort,
     });
 
     let mut out = None;
@@ -108,6 +130,9 @@ fn reconstruct_one(
             .and_then(|(_, code)| code.parse::<u16>().ok())
             .unwrap_or(0);
         let retryable = status == 0 || status == 408 || status == 429 || status >= 500;
+        if status == 402 {
+            return Err("HTTP 402: payment required; stopping retries".to_string());
+        }
         if result.status.success() && (200..300).contains(&status) {
             out = Some(result);
             break;
@@ -133,8 +158,11 @@ fn reconstruct_one(
     let md = data["choices"][0]["message"]["content"]
         .as_str()
         .ok_or_else(|| "missing content".to_string())?;
-    validate_markdown(md, page_num)?;
-    validate_retention(&input, md, page_num)?;
+    if let Err(first) =
+        validate_markdown(md, page_num).and_then(|_| validate_retention(&input, md, page_num))
+    {
+        return Err(format!("{}", first));
+    }
     fs::write(&out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
     eprintln!(
         "[md] p{:03} {}s {} chars",
@@ -171,8 +199,17 @@ fn validate_markdown(markdown: &str, page_num: usize) -> Result<(), String> {
 fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<(), String> {
     let source: PageJson =
         serde_json::from_str(input).map_err(|e| format!("parse page JSON: {}", e))?;
-    let source_numbers = input
-        .split_whitespace()
+    let source_numbers = source
+        .ocr_boxes
+        .iter()
+        .map(|box_| box_.text.as_str())
+        .chain(
+            source
+                .layout_regions
+                .iter()
+                .filter_map(|region| region.text_combined.as_deref()),
+        )
+        .flat_map(str::split_whitespace)
         .filter(|s| s.chars().any(|c| c.is_ascii_digit()))
         .count();
     let output_numbers = markdown
@@ -210,11 +247,20 @@ fn pdf_stem(source_pdf: &str) -> String {
 }
 
 pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
+    let mut args = args.clone();
+    if args.model.trim().is_empty() {
+        if let Some(value) = load_env_value("PDF2MD_MODEL", &args.env_file) {
+            args.model = value;
+        }
+    }
     if args.base_url.trim().is_empty() {
         return Err(
             "missing reconstruct base_url: set it in config/pdf2md.toml or pass --base-url"
                 .to_string(),
         );
+    }
+    if args.model.trim().is_empty() {
+        return Err("missing reconstruct model: set PDF2MD_MODEL or pass --model".to_string());
     }
     let api_key = load_env_key(&args.api_key_env, &args.env_file)?;
     let pdf_name = pdf_stem(&args.source_pdf);
@@ -257,7 +303,7 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
     let mut quality_failed = 0usize;
     let mut review_required = 0usize;
     let mut vlm_candidates = 0usize;
-    let max_concurrency = 5usize;
+    let max_concurrency = args.concurrency.max(1);
 
     for json_path in &files {
         if let Ok(text) = fs::read_to_string(json_path) {
@@ -295,8 +341,16 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
             let api_key = api_key.clone();
             let model = args.model.clone();
             let base_url = args.base_url.clone();
+            let reasoning_effort = args.reasoning_effort.clone();
             thread::spawn(move || {
-                let res = reconstruct_one(json_path, out_path, api_key, model, base_url);
+                let res = reconstruct_one(
+                    json_path,
+                    out_path,
+                    api_key,
+                    model,
+                    base_url,
+                    reasoning_effort,
+                );
                 let _ = tx.send(res);
             });
         }
