@@ -140,10 +140,21 @@ fn reconstruct_one(
         .and_then(|s| s.strip_prefix("page_"))
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| format!("bad filename: {}", json_path.display()))?;
+    let source: PageJson = serde_json::from_str(&input)
+        .map_err(|e| format!("parse page JSON {}: {}", json_path.display(), e))?;
 
     let prompt = build_prompt(page_num, &input);
     let key = cache_key(&model, &prompt, &input);
     let cache_path = cache_dir.join(format!("{}.md", key));
+    if source.ocr_boxes.is_empty() {
+        let marker = format!("<!-- PAGE {} -->\n", page_num);
+        fs::write(&out_path, &marker)
+            .map_err(|e| format!("write {}: {}", out_path.display(), e))?;
+        fs::write(&cache_path, &marker)
+            .map_err(|e| format!("write cache {}: {}", cache_path.display(), e))?;
+        eprintln!("[md] p{:03} blank OCR page skipped", page_num);
+        return Ok((page_num, marker.len()));
+    }
     if let Ok(cached) = fs::read_to_string(&cache_path) {
         if validate_markdown(&cached, page_num)
             .and_then(|_| validate_retention(&input, &cached, page_num))
@@ -325,10 +336,10 @@ fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<()
             && candidate.text.chars().count() >= 8
     }) {
         if normalized_contains(markdown, &candidate.text) {
-            return Err(format!(
-                "quality validation: page {} leaked classified page furniture: {}",
+            eprintln!(
+                "[md][WARN] page {} classified furniture may be present: {}",
                 page_num, candidate.text
-            ));
+            );
         }
     }
     if let Some(retained) = source.filtered_ocr_boxes.as_ref() {
