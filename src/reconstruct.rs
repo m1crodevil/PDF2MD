@@ -283,6 +283,12 @@ fn finalize_document(markdown: &str) -> Result<String, String> {
     Ok(finalized)
 }
 
+fn normalized_contains(haystack: &str, needle: &str) -> bool {
+    let haystack = haystack.split_whitespace().collect::<Vec<_>>().join(" ");
+    let needle = needle.split_whitespace().collect::<Vec<_>>().join(" ");
+    !needle.is_empty() && haystack.contains(&needle)
+}
+
 fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<(), String> {
     let source: PageJson =
         serde_json::from_str(input).map_err(|e| format!("parse page JSON: {}", e))?;
@@ -318,13 +324,7 @@ fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<()
         .iter()
         .filter(|candidate| candidate.confidence >= 0.75)
     {
-        let candidate_text = candidate
-            .text
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        let output_text = markdown.split_whitespace().collect::<Vec<_>>().join(" ");
-        if !candidate_text.is_empty() && output_text.contains(&candidate_text) {
+        if normalized_contains(markdown, &candidate.text) {
             return Err(format!(
                 "quality validation: page {} leaked classified page furniture: {}",
                 page_num, candidate.text
@@ -340,6 +340,23 @@ fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<()
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::{finalize_document, normalized_contains};
+    #[test]
+    fn rejects_furniture_with_whitespace_variants() {
+        assert!(normalized_contains("Header 2025", " Header   2025 "));
+        assert!(!normalized_contains("Header 2024", "Header 2025"));
+    }
+
+    #[test]
+    fn finalization_removes_all_page_markers() {
+        let result = finalize_document("<!-- PAGE 1 -->\nTitle\n<!-- PAGE 2 -->").unwrap();
+        assert_eq!(result, "Title");
+        assert!(!result.contains("<!-- PAGE"));
+    }
 }
 
 fn valid_existing_output(path: &Path, page_num: usize) -> bool {
