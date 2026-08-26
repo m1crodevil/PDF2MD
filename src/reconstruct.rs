@@ -368,8 +368,16 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         })?;
     }
 
-    let mut files: Vec<PathBuf> = fs::read_dir(&args.json_dir)
-        .map_err(|e| format!("read dir {}: {}", args.json_dir, e))?
+    let input_dir = {
+        let filtered = Path::new(&args.json_dir).join("filtered");
+        if filtered.is_dir() {
+            filtered
+        } else {
+            PathBuf::from(&args.json_dir)
+        }
+    };
+    let mut files: Vec<PathBuf> = fs::read_dir(&input_dir)
+        .map_err(|e| format!("read dir {}: {}", input_dir.display(), e))?
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
