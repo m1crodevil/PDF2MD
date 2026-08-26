@@ -58,21 +58,35 @@ fn load_env_value(name: &str, env_file: &str) -> Option<String> {
 
 fn build_prompt(page_num: usize, markdown_hint: &str) -> String {
     format!(
-        "You are a universal PDF page reconstruction engine.\n\n\
-Reconstruct this PDF page as faithful, readable Markdown using only the evidence\ncontained in the supplied page JSON. The JSON may contain OCR text, confidence\nscores, bounding boxes, layout regions, region labels, and page metadata.\nStudy and interpret that structure before writing the output.\n\n\
-Rules:\n\
-- Preserve the original language; never translate.\n\
-- Preserve all meaningful text, numbers, punctuation, symbols, labels, hierarchy,\n  grouping, and reading order.\n\
-- Infer reading order from layout regions, labels, coordinates, and bounding boxes;\n  do not assume the OCR array order is the reading order.\n\
-- Detect columns, titles, headings, paragraphs, lists, tables, captions, figures,\n  footnotes, sidebars, headers, and footers from the layout evidence.\n\
-- Recreate tables as Markdown tables only when row and column relationships are\n  recoverable. Preserve lists, quotes, formulas, code, and symbolic expressions\n  with the closest suitable Markdown representation.\n\
-- Preserve meaningful line breaks; otherwise combine OCR fragments into readable\n  paragraphs without changing their content.\n\
-- Omit repeated running headers or footers only when the layout evidence clearly\n  identifies them as repeated page furniture. Keep page-specific labels and\n  numbers.\n\
-- Correct only obvious OCR spacing or segmentation errors. Never guess unreadable\n  text, numbers, formulas, names, or symbols. Never add, summarize, paraphrase,\n  interpret, or editorialize.\n\
-- Do not invent descriptions for images or diagrams; preserve available captions\n  and labels.\n\
-- Use Markdown for structural fidelity, not visual decoration.\n\
-- Add page marker exactly once: <!-- PAGE {} -->\n\
-- Output ONLY the reconstructed Markdown.\n\n\
+        "You are a universal PDF page reconstruction and readability engine.\n\n\
+Turn ONE supplied PDF-page JSON into Markdown that is faithful to the source and\neasy for a human to understand. Improve readability through structure, grouping,\nheadings, spacing, and clear Markdown — never by inventing facts or changing\nmeaning. This must work for lecture notes, books, reports, articles, forms,\ninvoices, slides, technical documents, and mixed-layout pages.\n\n\
+SOURCE AND EVIDENCE:\n\
+- Use OCR text as the source of textual content.\n\
+- Use coordinates, bounding boxes, confidence scores, layout regions, labels, and\n  metadata to determine reading order and document structure.\n\
+- Never use outside knowledge to complete, explain, translate, or correct content.\n\
+- If evidence is ambiguous, preserve the original OCR rather than guessing.\n\n\
+CONTENT FIDELITY:\n\
+- Preserve the original language and meaning; never translate.\n\
+- Preserve meaningful words, numbers, dates, amounts, units, punctuation, symbols,\n  names, labels, formulas, and page-specific text.\n\
+- Correct only obvious OCR segmentation or spacing errors supported by nearby page\n  evidence. Never silently change uncertain numbers, names, formulas, or terms.\n\
+- Do not summarize, paraphrase, editorialize, add commentary, or merge content\n  from another page.\n\n\
+READABILITY AND STRUCTURE:\n\
+- Infer natural reading order from layout evidence, not OCR array order.\n\
+- Use a clear heading hierarchy when headings are visibly supported by the page.\n\
+- Group related fragments into readable paragraphs, but preserve meaningful line\n  breaks, labels, callouts, and short standalone statements.\n\
+- Represent lists as Markdown bullets or numbered lists when list structure is\n  supported. Keep list nesting when it is visible.\n\
+- Represent tables as Markdown tables only when row and column relationships are\n  reliably recoverable. If uncertain, use ordered lines or a simple list instead\n  of inventing columns.\n\
+- Preserve quotations, definitions, examples, warnings, formulas, code, and\n  symbolic expressions with the closest readable Markdown structure.\n\
+- Keep page-specific headers, footers, page numbers, captions, and labels. Omit a\n  header or footer only when layout evidence clearly identifies it as repeated\n  page furniture with no page-specific meaning.\n\
+- Use whitespace and concise structural Markdown to make the page easy to scan,\n  but do not add decorative content.\n\n\
+NON-TEXT OBJECTS:\n\
+- Do not invent descriptions or interpretations of images, charts, diagrams, or\n  logos. Preserve available captions, labels, and recoverable text.\n\
+- If a visual object has no recoverable text, omit it rather than hallucinating.\n\n\
+OUTPUT CONTRACT:\n\
+- Output only the reconstructed Markdown. No preamble, explanation, JSON, YAML,\n  front matter, or fenced Markdown wrapper.\n\
+- Add exactly one page marker as the first line: <!-- PAGE {} -->\n\
+- Do not add any other page marker.\n\
+- Do not add a title or heading unless supported by the page content.\n\n\
 OCR and layout JSON input:\n{}",
         page_num, markdown_hint
     )
