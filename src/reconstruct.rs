@@ -93,7 +93,7 @@ READABILITY AND STRUCTURE:\n\
 - Represent lists as Markdown bullets or numbered lists when list structure is\n  supported. Keep list nesting when it is visible.\n\
 - Represent tables as Markdown tables only when row and column relationships are\n  reliably recoverable. If uncertain, use ordered lines or a simple list instead\n  of inventing columns.\n\
 - Preserve quotations, definitions, examples, warnings, formulas, code, and\n  symbolic expressions with the closest readable Markdown structure.\n\
-- Keep page-specific headers, footers, page numbers, captions, and labels. Omit a\n  header or footer only when layout evidence clearly identifies it as repeated\n  page furniture with no page-specific meaning.\n\
+HEADER AND FOOTER POLICY:\n- The input may contain repeated running headers, running footers, page numbers,\n  document titles, captions, and labels.\n- Preserve titles, chapter/section/article headings, captions, legal references,\n  dates, amounts, formulas, signatures, and page-specific content.\n- Remove only text explicitly classified as repeated page furniture by the\n  cross-page preprocessing step. Never infer a removal from position alone.\n- When classification is absent or uncertain, preserve the text.\n- Do not restore text marked as removed page furniture.\n\
 - Use whitespace and concise structural Markdown to make the page easy to scan,\n  but do not add decorative content.\n\n\
 NON-TEXT OBJECTS:\n\
 - Do not invent descriptions or interpretations of images, charts, diagrams, or\n  logos. Preserve available captions, labels, and recoverable text.\n\
