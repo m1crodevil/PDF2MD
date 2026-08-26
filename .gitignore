@@ -2,6 +2,9 @@ target/
 md_pages/
 json/
 output/
+.env
+.env.*
+!.env.example
 *.apkg
 *.sqlite
 *.db

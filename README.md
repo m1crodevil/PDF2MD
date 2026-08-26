@@ -78,7 +78,14 @@ Default configuration:
 config/pdf2md.toml
 ```
 
-`reconstruct` expects `curl` and an API key supplied through the configured LLM endpoint or environment. Do not commit credentials.
+Secrets stay local:
+
+- keep your real API key in `.env` or another local env file;
+- do not commit `.env`;
+- commit `.env.example` as the template for required variable names;
+- `reconstruct` now fails fast if `base_url` is missing instead of falling back to a placeholder endpoint.
+
+`reconstruct` expects `curl` plus a valid LLM endpoint and API key supplied through the configured environment. Do not commit credentials.
 
 ## Upstream projects
 

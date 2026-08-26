@@ -69,7 +69,7 @@ impl AppConfig {
                     args.api_key_env = v.clone();
                 }
             }
-            if args.base_url == "https://api.openai.com/v1" {
+            if args.base_url.is_empty() {
                 if let Some(v) = &cfg.base_url {
                     args.base_url = v.clone();
                 }

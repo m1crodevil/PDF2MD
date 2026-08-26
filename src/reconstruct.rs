@@ -210,6 +210,12 @@ fn pdf_stem(source_pdf: &str) -> String {
 }
 
 pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
+    if args.base_url.trim().is_empty() {
+        return Err(
+            "missing reconstruct base_url: set it in config/pdf2md.toml or pass --base-url"
+                .to_string(),
+        );
+    }
     let api_key = load_env_key(&args.api_key_env, &args.env_file)?;
     let pdf_name = pdf_stem(&args.source_pdf);
     let bundle_root = PathBuf::from(&args.outdir).join(&pdf_name);

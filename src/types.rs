@@ -77,11 +77,11 @@ pub(crate) struct ReconstructArgs {
     pub api_key_env: String,
 
     /// API key file path
-    #[arg(long, default_value = "~/.config/pdf2md/env")]
+    #[arg(long, default_value = "./.env")]
     pub env_file: String,
 
     /// LLM base URL
-    #[arg(long, default_value = "https://api.example.com/v1")]
+    #[arg(long, default_value = "")]
     pub base_url: String,
 
     /// Model slug
