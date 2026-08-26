@@ -112,7 +112,7 @@ pub(crate) struct LayoutRegion {
     pub label: String,
     pub score: f64,
     pub bbox: [f64; 4],
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub text_boxes: Vec<RegionTextBox>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_combined: Option<String>,
