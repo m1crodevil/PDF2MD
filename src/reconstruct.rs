@@ -199,16 +199,11 @@ fn validate_markdown(markdown: &str, page_num: usize) -> Result<(), String> {
 fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<(), String> {
     let source: PageJson =
         serde_json::from_str(input).map_err(|e| format!("parse page JSON: {}", e))?;
+    // layout_regions.text_combined duplicates ocr_boxes text; count boxes only
     let source_numbers = source
         .ocr_boxes
         .iter()
         .map(|box_| box_.text.as_str())
-        .chain(
-            source
-                .layout_regions
-                .iter()
-                .filter_map(|region| region.text_combined.as_deref()),
-        )
         .flat_map(str::split_whitespace)
         .filter(|s| s.chars().any(|c| c.is_ascii_digit()))
         .count();
