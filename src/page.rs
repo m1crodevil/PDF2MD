@@ -194,6 +194,8 @@ pub(crate) fn process_page(
             reading_order: Vec::new(),
             risk_flags: vec!["blank".to_string()],
             quality: PageQuality::default(),
+            furniture: Vec::new(),
+            filtered_ocr_boxes: None,
             ocr_model: None,
             timings: Timings {
                 render: render_time,
@@ -323,6 +325,8 @@ pub(crate) fn process_page(
             visual_region_detected,
             review_required,
         },
+        furniture: Vec::new(),
+        filtered_ocr_boxes: None,
         ocr_model,
         timings: Timings {
             render: render_time,

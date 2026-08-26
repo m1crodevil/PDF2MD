@@ -142,9 +142,21 @@ pub(crate) struct PageJson {
     pub risk_flags: Vec<String>,
     #[serde(default)]
     pub quality: PageQuality,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub furniture: Vec<FurnitureAnnotation>,
+    #[serde(default)]
+    pub filtered_ocr_boxes: Option<Vec<usize>>,
     #[serde(default)]
     pub ocr_model: Option<String>,
     pub timings: Timings,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub(crate) struct FurnitureAnnotation {
+    pub text: String,
+    pub role: String,
+    pub confidence: f64,
+    pub reason: String,
 }
 
 fn default_page_status() -> String {
