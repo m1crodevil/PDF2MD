@@ -1,5 +1,6 @@
 mod cleanup;
 mod config;
+mod furniture;
 mod manifest;
 mod page;
 mod reconstruct;
@@ -14,6 +15,7 @@ use clap::Parser;
 use cleanup::RegexFixes;
 use config::load as load_config;
 
+use furniture::annotate_directory;
 use page::process_page;
 use reconstruct::run as run_reconstruct;
 use report::*;
@@ -91,6 +93,9 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
         }
     }
 
+    if errors == 0 {
+        annotate_directory(&cli.outdir).map_err(|e| format!("furniture annotation: {}", e))?;
+    }
     print_summary(
         start_time.elapsed().as_secs_f64(),
         total,
