@@ -102,6 +102,22 @@ pdf2md reconstruct --concurrency 2
 
 `reconstruct` expects `curl` plus a valid LLM endpoint and API key supplied through the configured environment. It reads only `message.content`; provider reasoning fields are never treated as Markdown. HTTP 402 stops retries; transient network/429/5xx failures are retried. Do not commit credentials.
 
+### Reconstruction response cache
+
+To avoid paying the LLM for pages it has already produced successfully, `reconstruct` keeps a content-addressed cache of validated Markdown:
+
+- **Key**: `sha256(model || prompt || page_json)`. The page JSON is the deterministic per-page OCR/layout input; the prompt is the deterministic output of `build_prompt`. Any change to model, prompt template, or input JSON naturally invalidates the entry.
+- **Value**: validated Markdown, written only after `validate_markdown` and `validate_retention` pass.
+- **Location**: `<outdir>/<pdf_stem>/.cache/reconstruct/<key>.md`.
+- **Lookup order**: existing `page_XXX.md` that already passes validation is reused first; otherwise the cache is consulted before any API call; on miss, the LLM is invoked and the result is cached.
+- **Smoke check**:
+
+```bash
+pdf2md reconstruct --concurrency 1   # first run: API call per page
+rm <outdir>/<pdf_stem>/md/page_001.md # force the cache path
+pdf2md reconstruct --concurrency 1   # log line: [md] p001 cache-hit N chars
+```
+
 ## Upstream projects
 
 PDF2MD uses the Paddle ecosystem for OCR and document-layout analysis. These are the relevant upstream repositories:
