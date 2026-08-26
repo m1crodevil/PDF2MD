@@ -260,6 +260,29 @@ fn validate_markdown(markdown: &str, page_num: usize) -> Result<(), String> {
     Ok(())
 }
 
+fn finalize_document(markdown: &str) -> Result<String, String> {
+    let finalized = markdown
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !(trimmed.starts_with("<!-- PAGE ") && trimmed.ends_with(" -->"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    if finalized.is_empty() {
+        return Err("finalize document: output is empty after removing metadata".to_string());
+    }
+    if finalized
+        .lines()
+        .any(|line| line.trim().starts_with("<!-- PAGE "))
+    {
+        return Err("finalize document: page marker leaked into final output".to_string());
+    }
+    Ok(finalized)
+}
+
 fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<(), String> {
     let source: PageJson =
         serde_json::from_str(input).map_err(|e| format!("parse page JSON: {}", e))?;
@@ -479,7 +502,8 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         }
     }
     if !merged.trim().is_empty() {
-        fs::write(bundle_root.join("document.md"), merged)
+        let finalized = finalize_document(&merged)?;
+        fs::write(bundle_root.join("document.md"), finalized)
             .map_err(|e| format!("write document.md: {}", e))?;
     }
     let manifest = Manifest {

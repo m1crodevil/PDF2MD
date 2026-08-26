@@ -49,10 +49,13 @@ pub(crate) fn render_page(
     // pdftoppm outputs page-NNN.png; rename to our format
     let generated = PathBuf::from(format!("{}/page-{:03}.png", tmp_dir, page_num));
     let alt = PathBuf::from(format!("{}/page-{}.png", tmp_dir, page_num));
+    let padded = PathBuf::from(format!("{}/page-{:02}.png", tmp_dir, page_num));
     let src = if generated.exists() {
         generated
     } else if alt.exists() {
         alt
+    } else if padded.exists() {
+        padded
     } else {
         return Err(format!("pdftoppm output not found for page {}", page_num));
     };
