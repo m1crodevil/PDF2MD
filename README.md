@@ -1,177 +1,150 @@
 # PDF2MD
 
-A lightweight Rust pipeline that turns PDFs into page-aware Markdown and JSON for downstream agent workflows.
+PDF2MD is a small Rust pipeline that turns PDFs into page-aware JSON and Markdown.
+It combines PDF rendering, OCR, layout detection, and optional LLM-assisted
+reconstruction.
 
-> **Current limitation:** PDF2MD is not a full document-vision system. It can extract text and layout metadata, but it cannot reliably understand the semantic content of embedded images, charts, diagrams, or other visually complex objects. VLM-based visual understanding is planned for a later phase.
+> **Important:** PDF2MD extracts text and layout. It does not yet understand the
+> meaning of charts, diagrams, graphs, or image-only content. Review those pages
+> manually or send them through a VLM in a later step.
 
-## What it does
-
-- `ocr` → scanned PDF to per-page JSON
-- layout analysis → detects regions such as text, tables, figures, and captions
-- adaptive OCR → selects the OCR model based on detected page layout
-- `reconstruct` → page JSON to Markdown via a configurable LLM endpoint
-- deterministic OCR cleanup while preserving raw OCR text
-- page quality assessment and risk flags for tables, visual objects, confidence, and reading order
-- Markdown validation for page markers, numeric-token retention, and detected table structure
-- conservative document-level concatenation into `document.md`
-- quality validation, retry handling, resume support, and run manifest output
-
-## What it does not do yet
-
-PDF2MD currently does **not** reliably:
-
-- interpret the meaning of charts, graphs, plots, or diagrams;
-- extract and explain information encoded only in an image;
-- perform visual question answering over page objects;
-- reconstruct complex visual relationships between figures, labels, legends, and surrounding text;
-- replace a VLM for image-heavy or graph-heavy documents.
-
-The current pipeline can preserve detected regions and OCR text as context, but that context is not equivalent to visual understanding. Pages containing complex visual objects should be treated as requiring review or VLM processing in the next development phase.
-
-## Pipeline
+## How it works
 
 ```text
-PDF
- ├─ text-based pages ──> text/layout extraction
- └─ scanned pages ─────> OCR + layout analysis
-                              │
-                              ├─ page JSON with OCR boxes and regions
-                              └─ Markdown reconstruction via LLM
-
-Future phase: VLM analysis for images, charts, diagrams, and visual relationships
+PDF → render/OCR → page JSON → Markdown reconstruction → document.md
 ```
+
+- `ocr` renders pages and writes one JSON file per page.
+- `reconstruct` validates those JSON files and turns them into Markdown.
+- The final output includes per-page Markdown, `document.md`, and a manifest.
+- Quality checks catch missing page markers, lost numeric tokens, malformed tables,
+  and invalid OCR results.
+
+The pipeline keeps raw OCR text, cleaned text, layout regions, confidence scores,
+reading order, and review flags. These signals help route difficult pages; they
+are not a guarantee that the document was understood correctly.
+
+## What it handles well
+
+- Scanned PDFs with ordinary text and common page layouts.
+- Basic tables, figures, captions, and multi-region pages.
+- Resumable reconstruction with bounded concurrency.
+- Retry handling for temporary API failures.
+- Page-level validation and a run manifest.
+
+## Current limits
+
+PDF2MD is not a replacement for visual document understanding. It may struggle
+with:
+
+- charts, plots, and diagrams;
+- information stored only inside images;
+- complex figure/legend relationships;
+- cross-page tables and unusual multi-column layouts.
+
+Those pages are flagged for review instead of being presented as reliably
+understood.
 
 ## Quick start
 
+Build the binary and check the local dependencies:
+
 ```bash
 cargo build --release
-./target/release/pdf2md --help
-```
-
-OCR discovers the PDF page count automatically. `--total` is an optional explicit
-upper bound and must not exceed the actual PDF page count; `--start` and `--end`
-are validated before rendering begins. Any page error makes the OCR command exit
-non-zero, and failed pages are not written as fake JSON results.
-
-Check local dependencies:
-
-```bash
 ./scripts/check-deps.sh
 ```
 
-## Input and output
+Run OCR:
 
-OCR produces per-page JSON containing, among other fields:
+```bash
+./target/release/pdf2md ocr \
+  --pdf ./input.pdf \
+  --outdir ./json
+```
 
-- `layout_regions`
-- `ocr_boxes`
-- OCR confidence scores
-- bounding boxes and reading-order context
-- `ocr_model`
-- `reading_order` — deterministic region order derived from layout coordinates
-- `risk_flags` — for example `table_detected`, `visual_object`, `low_confidence`, `ambiguous_reading_order`, and `blank`
-- `quality` — text length, OCR box count, mean confidence, low-confidence ratio, detected table/visual regions, and review status
-- raw and cleaned OCR text where available
+The page count is discovered from the PDF automatically. Use `--start`, `--end`,
+and optionally `--total` to process a bounded range. Ranges are checked before
+rendering starts, and any page error makes the command exit non-zero.
 
-Reconstruction produces per-page Markdown, a conservative concatenated `document.md`, and a manifest describing page-level results. The manifest includes `quality_failed`, `review_required`, and `vlm_candidates`; these are routing and observability signals, not proof that the output is semantically correct.
+Reconstruct Markdown:
+
+```bash
+./target/release/pdf2md reconstruct --concurrency 2
+```
+
+Run `--help` on either command for the complete option list.
 
 ## Configuration
 
-Default configuration:
+The portable template lives at:
 
 ```text
 config/pdf2md.toml
 ```
 
-Secrets stay local:
+Keep machine-specific settings in the ignored local override when needed:
 
-- keep your real API key in `.env` or another local env file;
-- do not commit `.env`;
-- commit `.env.example` as the template for required variable names;
-- `reconstruct` now fails fast if `base_url` or model is missing instead of falling back to a placeholder endpoint;
-- model, endpoint, concurrency, and reasoning mode can be supplied through environment/config rather than hardcoded in Rust.
+```text
+config/pdf2md.local.toml
+```
 
-Example local values:
+Keep API keys in `.env` or the environment. Never commit credentials. A typical
+local setup provides:
 
 ```dotenv
-PDF2MD_MODEL=cx/gpt-5.6-luna
-PDF2MD_BASE_URL=https://api.example.com/v1
+PDF2MD_API_KEY=...
+PDF2MD_BASE_URL=https://your-llm-endpoint/v1
+PDF2MD_MODEL=your-model
 PDF2MD_REASONING_EFFORT=none
 ```
 
-Run with bounded parallelism:
+`reconstruct` fails fast when the endpoint or model is missing. It reads
+`message.content` from the configured API response; provider reasoning fields are
+not treated as Markdown.
 
-```bash
-pdf2md reconstruct --concurrency 2
+## Output and resume behavior
+
+OCR writes page JSON containing layout regions, OCR boxes, confidence, cleaned and
+raw text, quality data, and risk flags.
+
+Reconstruction writes:
+
+```text
+<outdir>/<pdf-stem>/
+├── md/page_001.md
+├── document.md
+├── manifest.json
+└── .cache/reconstruct/
 ```
 
-`reconstruct` expects `curl` plus a valid LLM endpoint and API key supplied through the configured environment. It reads only `message.content`; provider reasoning fields are never treated as Markdown. HTTP 402 stops retries; transient network/429/5xx failures are retried. Do not commit credentials.
+Existing Markdown is reused only when it passes validation. Validated responses
+are also cached by model, prompt, and page JSON, so changing any of those inputs
+naturally creates a new cache entry.
 
-### Reconstruction response cache
+Malformed JSON, a page-number mismatch, or a page status other than `success` is
+rejected before an LLM request. A run can still write its manifest, but exits
+non-zero when one or more pages fail.
 
-To avoid paying the LLM for pages it has already produced successfully, `reconstruct` keeps a content-addressed cache of validated Markdown:
+## Development
 
-- **Key**: `sha256(model || prompt || page_json)`. The page JSON is the deterministic per-page OCR/layout input; the prompt is the deterministic output of `build_prompt`. Any change to model, prompt template, or input JSON naturally invalidates the entry.
-- **Value**: validated Markdown, written only after `validate_markdown` and `validate_retention` pass.
-- **Location**: `<outdir>/<pdf_stem>/.cache/reconstruct/<key>.md`.
-- **Lookup order**: existing `page_XXX.md` that already passes validation is reused first; otherwise the cache is consulted before any API call; on miss, the LLM is invoked and the result is cached.
-- **Smoke check**:
+Run the standard checks:
 
 ```bash
-pdf2md reconstruct --concurrency 1   # first run: API call per page
-rm <outdir>/<pdf_stem>/md/page_001.md # force the cache path
-pdf2md reconstruct --concurrency 1   # log line: [md] p001 cache-hit N chars
+cargo fmt -- --check
+cargo check
+cargo test
+cargo build --release
 ```
+
+The project intentionally keeps deterministic extraction and validation as the
+default path. VLM processing is planned for pages whose visual risk signals justify
+the extra cost.
 
 ## Upstream projects
 
-PDF2MD uses the Paddle ecosystem for OCR and document-layout analysis. These are the relevant upstream repositories:
+PDF2MD uses the Paddle ecosystem for OCR and layout detection:
 
-- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) — OCR and document-understanding toolkit, including PP-DocLayout-related components.
-- [PaddleX](https://github.com/PaddlePaddle/PaddleX) — PaddlePaddle's broader AI development and deployment platform.
-- [FastDeploy](https://github.com/PaddlePaddle/FastDeploy) — official PaddlePaddle inference/deployment toolkit.
-- [faster-paddle](https://github.com/cnmoro/faster-paddle) — the faster-paddle repository used as the local OCR helper/runtime reference in this project.
-
-The upstream OCR/layout components provide text and region detection. They do not, by themselves, provide complete semantic understanding of arbitrary charts, diagrams, or image-only objects. That gap is the scope of the planned VLM phase.
-
-## Quality and routing behavior
-
-PDF2MD separates **API success** from **content quality**. A reconstruction can fail the quality gate even when the LLM request itself succeeded.
-
-Current checks include:
-
-- empty or marker-only Markdown is rejected;
-- the expected page marker must be present;
-- pages with enough numeric evidence are checked for severe numeric-token loss;
-- a page detected as a table must produce a Markdown table structure;
-- existing output is resumed only when it passes validation;
-- transient request failures are retried, while non-transient HTTP errors are not blindly retried.
-- malformed, mismatched, or non-success OCR page JSON is rejected before an LLM request;
-- reconstruction exits non-zero when one or more pages fail, while still writing its manifest.
-
-Risk flags do not automatically invoke a VLM. They identify pages for review or a future selective VLM route. In particular, `vlm_candidates` means that a visual object was detected; it does not mean the visual object has already been understood.
-
-The region reading order is currently a conservative bounding-box order. Complex multi-column layouts, cross-page tables, figures, charts, and diagrams can still require review.
-
-## Development status
-
-Implemented:
-
-1. text extraction and OCR;
-2. layout-aware page JSON;
-3. adaptive OCR model routing;
-4. deterministic cleanup with raw-text preservation;
-5. page quality metadata and risk flags;
-6. reconstruction quality validation;
-7. explicit reading-order metadata;
-8. conservative document-level `document.md` output;
-9. retry, resume, temporary-directory cleanup, and manifest observability.
-
-Planned:
-
-1. benchmark fixtures and structural fidelity metrics;
-2. stronger table structure validation and cross-page merge;
-3. selective VLM integration for flagged visual pages;
-4. semantic understanding of images, charts, diagrams, and complex visual relationships.
-
-The project deliberately does not send every page to a VLM. Deterministic extraction and validation remain the default; expensive visual processing should be reserved for pages whose risk signals justify it.
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)
+- [PaddleX](https://github.com/PaddlePaddle/PaddleX)
+- [FastDeploy](https://github.com/PaddlePaddle/FastDeploy)
+- [faster-paddle](https://github.com/cnmoro/faster-paddle)
