@@ -6,6 +6,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 
+use sha2::{Digest, Sha256};
+
 use crate::manifest::{write as write_manifest, Manifest};
 use crate::types::PageJson;
 use crate::types::ReconstructArgs;
@@ -76,9 +78,24 @@ OCR and layout JSON input:\n{}",
     )
 }
 
+fn cache_key(model: &str, prompt: &str, input_json: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(model.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(prompt.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(input_json.as_bytes());
+    hex_of(&hasher.finalize())
+}
+
+fn hex_of(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 fn reconstruct_one(
     json_path: PathBuf,
     out_path: PathBuf,
+    cache_dir: PathBuf,
     api_key: String,
     model: String,
     base_url: String,
@@ -95,6 +112,19 @@ fn reconstruct_one(
         .ok_or_else(|| format!("bad filename: {}", json_path.display()))?;
 
     let prompt = build_prompt(page_num, &input);
+    let key = cache_key(&model, &prompt, &input);
+    let cache_path = cache_dir.join(format!("{}.md", key));
+    if let Ok(cached) = fs::read_to_string(&cache_path) {
+        if validate_markdown(&cached, page_num)
+            .and_then(|_| validate_retention(&input, &cached, page_num))
+            .is_ok()
+        {
+            fs::write(&out_path, &cached)
+                .map_err(|e| format!("write {}: {}", out_path.display(), e))?;
+            eprintln!("[md] p{:03} cache-hit {} chars", page_num, cached.len());
+            return Ok((page_num, cached.len()));
+        }
+    }
     let payload = serde_json::json!({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -164,6 +194,8 @@ fn reconstruct_one(
         return Err(format!("{}", first));
     }
     fs::write(&out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
+    fs::write(&cache_path, md)
+        .map_err(|e| format!("write cache {}: {}", cache_path.display(), e))?;
     eprintln!(
         "[md] p{:03} {}s {} chars",
         page_num,
@@ -261,6 +293,8 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
     let pdf_name = pdf_stem(&args.source_pdf);
     let bundle_root = PathBuf::from(&args.outdir).join(&pdf_name);
     let md_root = bundle_root.join("md");
+    let cache_dir = bundle_root.join(".cache").join("reconstruct");
+    fs::create_dir_all(&cache_dir).map_err(|e| format!("mkdir {}: {}", cache_dir.display(), e))?;
     fs::create_dir_all(bundle_root.join("json"))
         .map_err(|e| format!("mkdir {}: {}", bundle_root.join("json").display(), e))?;
     fs::create_dir_all(&md_root).map_err(|e| format!("mkdir {}: {}", md_root.display(), e))?;
@@ -337,10 +371,12 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
             let model = args.model.clone();
             let base_url = args.base_url.clone();
             let reasoning_effort = args.reasoning_effort.clone();
+            let cache_dir = cache_dir.clone();
             thread::spawn(move || {
                 let res = reconstruct_one(
                     json_path,
                     out_path,
+                    cache_dir,
                     api_key,
                     model,
                     base_url,
@@ -402,4 +438,28 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
     )
     .map_err(|e| format!("write manifest: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cache_key;
+
+    #[test]
+    fn cache_key_is_deterministic_and_sensitive() {
+        let k1 = cache_key("m", "p", "j");
+        let k2 = cache_key("m", "p", "j");
+        assert_eq!(k1, k2, "same inputs must map to same key");
+        assert_eq!(k1.len(), 64, "sha256 hex is 64 chars");
+        assert_ne!(k1, cache_key("m", "p", "j2"), "json change must change key");
+        assert_ne!(
+            k1,
+            cache_key("m", "p2", "j"),
+            "prompt change must change key"
+        );
+        assert_ne!(
+            k1,
+            cache_key("m2", "p", "j"),
+            "model change must change key"
+        );
+    }
 }
