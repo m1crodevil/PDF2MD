@@ -1,6 +1,7 @@
 mod cleanup;
 mod config;
 mod furniture;
+mod ir;
 mod manifest;
 mod page;
 mod reconstruct;
