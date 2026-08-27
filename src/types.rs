@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 // ─── CLI ───
 
 #[derive(Parser, Debug)]
-#[command(name = "ocr-pipeline")]
+#[command(name = "pdf2md")]
 #[command(about = "OCR + Markdown pipeline")]
 pub(crate) struct Cli {
     #[command(subcommand)]

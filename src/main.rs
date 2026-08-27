@@ -167,9 +167,14 @@ fn pdf_page_count(pdf: &str) -> Result<usize, String> {
 
 fn main() {
     let cli = Cli::parse();
-    let cfg = load_config("config/pdf2md.local.toml")
-        .or_else(|_| load_config("config/pdf2md.toml"))
-        .ok();
+    let cfg = if std::path::Path::new("config/pdf2md.local.toml").exists() {
+        Some(load_config("config/pdf2md.local.toml").unwrap_or_else(|e| {
+            eprintln!("FATAL: {}", e);
+            std::process::exit(1);
+        }))
+    } else {
+        load_config("config/pdf2md.toml").ok()
+    };
     match cli.command {
         Commands::Ocr(args) => {
             if let Err(e) = run_ocr(

@@ -54,6 +54,9 @@ cargo build --release
 ./scripts/check-deps.sh
 ```
 
+The dependency check covers `cargo`, `curl`, `pdfinfo`, `pdftoppm`, `python3`,
+`paddleocr`, and `faster_paddle`.
+
 Run OCR:
 
 ```bash
@@ -87,6 +90,10 @@ Keep machine-specific settings in the ignored local override when needed:
 ```text
 config/pdf2md.local.toml
 ```
+
+If `config/pdf2md.local.toml` exists, it is authoritative and parse errors stop the
+program instead of silently falling back. Without it, the portable template is used.
+Generated run bundles under `runs/` are local artifacts and are ignored by Git.
 
 Keep API keys in `.env` or the environment. Never commit credentials. A typical
 local setup provides:
