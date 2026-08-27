@@ -300,6 +300,31 @@ fn normalized_contains(haystack: &str, needle: &str) -> bool {
     !needle.is_empty() && haystack.contains(&needle)
 }
 
+fn retention_key(token: &str) -> String {
+    token
+        .chars()
+        .filter(|c| {
+            c.is_alphanumeric() || matches!(c, '%' | '/' | '-' | '.' | ',' | '=' | '+' | '−')
+        })
+        .collect::<String>()
+        .to_lowercase()
+}
+
+fn protected_tokens(source: &PageJson) -> Vec<String> {
+    let mut tokens = std::collections::BTreeSet::new();
+    for text in source.ocr_boxes.iter().map(|box_| box_.text.as_str()) {
+        for token in text.split_whitespace() {
+            let key = retention_key(token);
+            if key.chars().any(|c| c.is_ascii_digit())
+                && (key.len() >= 2 || key.chars().any(|c| c == '%'))
+            {
+                tokens.insert(key);
+            }
+        }
+    }
+    tokens.into_iter().collect()
+}
+
 fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<(), String> {
     let source: PageJson =
         serde_json::from_str(input).map_err(|e| format!("parse page JSON: {}", e))?;
@@ -323,6 +348,14 @@ fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<()
             "quality validation: page {} lost too many numeric tokens",
             page_num
         ));
+    }
+    for token in protected_tokens(&source) {
+        if !normalized_contains(&markdown.replace(['$', '€', '£'], ""), &token) {
+            return Err(format!(
+                "quality validation: page {} lost protected token {}",
+                page_num, token
+            ));
+        }
     }
     if source.quality.table_detected && !markdown.contains('|') {
         eprintln!(
