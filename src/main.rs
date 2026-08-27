@@ -19,6 +19,7 @@ use config::load as load_config;
 
 use furniture::annotate_directory;
 use page::process_page;
+use pdfoxide_backend::probe_page;
 use reconstruct::run as run_reconstruct;
 use report::*;
 use types::{BatchHelper, Cli, Commands, OcrArgs};
@@ -66,6 +67,15 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
             skipped += 1;
             print_skip(page_num, total);
             continue;
+        }
+
+        if let Ok(probe) = probe_page(std::path::Path::new(&cli.pdf), page_num - 1) {
+            eprintln!(
+                "page {} native text: {} chars; route: {:?}",
+                page_num,
+                probe.native_text_chars,
+                probe.backend(20)
+            );
         }
 
         match process_page(cli, page_num, &tmp_dir, &regex_fixes, &mut helper) {
