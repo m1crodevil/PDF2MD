@@ -63,13 +63,14 @@ class PageResult:
     cer: float
     wer: float
     numeric_recall: float
+    protected_token_recall: float
     expected_table: bool
     output_table: bool
     markdown_errors: list[str]
     passed: bool
 
 
-def evaluate_page(gold_txt: Path, output_md: Path, page_json: Path | None) -> PageResult:
+def evaluate_page(gold_txt: Path, output_md: Path, page_json: Path | None, protected: list[str]) -> PageResult:
     gold = gold_txt.read_text(encoding="utf-8")
     output = output_md.read_text(encoding="utf-8")
     gc, oc = list(norm(gold)), list(norm(output))
@@ -78,6 +79,7 @@ def evaluate_page(gold_txt: Path, output_md: Path, page_json: Path | None) -> Pa
     wer = distance(gw, ow) / max(1, len(gw))
     nums = numeric_tokens(gold)
     numeric_recall = sum(n in numeric_tokens(output) for n in nums) / max(1, len(nums))
+    protected_token_recall = (sum(t in output for t in protected) / len(protected)) if protected else 1.0
     expected_table = False
     if page_json and page_json.exists():
         data = json.loads(page_json.read_text(encoding="utf-8"))
@@ -87,7 +89,7 @@ def evaluate_page(gold_txt: Path, output_md: Path, page_json: Path | None) -> Pa
     if expected_table and not output_table:
         errors.append("expected_table_missing")
     return PageResult(
-        output_md.stem, cer, wer, numeric_recall, expected_table, output_table,
+        output_md.stem, cer, wer, numeric_recall, protected_token_recall, expected_table, output_table,
         errors, not errors,
     )
 
@@ -99,6 +101,8 @@ def main() -> int:
     ap.add_argument("--max-cer", type=float, default=1.0)
     ap.add_argument("--max-wer", type=float, default=1.0)
     ap.add_argument("--min-numeric-recall", type=float, default=1.0)
+    ap.add_argument("--protected-token", action="append", default=[])
+    ap.add_argument("--required-absent-token", action="append", default=[])
     args = ap.parse_args()
     root = args.fixtures
     gold_dir, output_dir = root / "gold", root / "output"
@@ -112,7 +116,7 @@ def main() -> int:
             print(f"missing output for {gold_txt.stem}", file=sys.stderr)
             return 2
         page_json = root / "metadata" / f"{gold_txt.stem}.json"
-        results.append(evaluate_page(gold_txt, output_md, page_json))
+        results.append(evaluate_page(gold_txt, output_md, page_json, args.protected_token))
     if not results:
         print("no gold fixtures found", file=sys.stderr)
         return 2
@@ -125,6 +129,8 @@ def main() -> int:
         sum(r.cer for r in results) / len(results) <= args.max_cer
         and sum(r.wer for r in results) / len(results) <= args.max_wer
         and sum(r.numeric_recall for r in results) / len(results) >= args.min_numeric_recall
+        and sum(r.protected_token_recall for r in results) / len(results) >= 1.0
+        and all(not any(token in (root / "output" / f"{r.name}.md").read_text(encoding="utf-8") for token in args.required_absent_token) for r in results)
     )
     report = {
         "schema": "pdf2md-quality-v1",
@@ -135,6 +141,7 @@ def main() -> int:
         "cer": sum(r.cer for r in results) / len(results),
         "wer": sum(r.wer for r in results) / len(results),
         "numeric_recall": sum(r.numeric_recall for r in results) / len(results),
+        "protected_token_recall": sum(r.protected_token_recall for r in results) / len(results),
         "thresholds": {"max_cer": args.max_cer, "max_wer": args.max_wer,
                        "min_numeric_recall": args.min_numeric_recall},
         "metrics_passed": metric_pass,

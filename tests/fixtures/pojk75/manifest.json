@@ -1,0 +1,11 @@
+{
+  "schema": "pdf2md-pojk-regression-v1",
+  "pages_total": 11,
+  "required_absent_tokens": ["- 2 -"],
+  "protected_tokens": [
+    "rp3.000.000.000,00",
+    "1,",
+    "kep-40/pm/2003"
+  ],
+  "substantive_prefixes": ["2."]
+}

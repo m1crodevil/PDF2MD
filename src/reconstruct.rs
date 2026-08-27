@@ -526,6 +526,16 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
     let mut skip = 0usize;
     let mut fail = 0usize;
     let mut quality_failed = 0usize;
+    let pages_empty = files
+        .iter()
+        .filter(|path| {
+            fs::read_to_string(path)
+                .ok()
+                .and_then(|text| serde_json::from_str::<PageJson>(&text).ok())
+                .map(|page| page.blank || page.ocr_boxes.is_empty())
+                .unwrap_or(true)
+        })
+        .count();
     let mut review_required = 0usize;
     let mut vlm_candidates = 0usize;
     let max_concurrency = args.concurrency.max(1);
@@ -654,6 +664,14 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         quality_failed,
         review_required,
         vlm_candidates,
+        pages_total: files.len(),
+        pages_empty,
+        content_integrity: if pages_empty == 0 && fail == 0 {
+            "complete"
+        } else {
+            "incomplete"
+        }
+        .to_string(),
     };
     write_manifest(
         &format!("{}/manifest.json", bundle_root.display()),

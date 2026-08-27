@@ -12,6 +12,9 @@ pub(crate) struct Manifest {
     pub quality_failed: usize,
     pub review_required: usize,
     pub vlm_candidates: usize,
+    pub pages_total: usize,
+    pub pages_empty: usize,
+    pub content_integrity: String,
 }
 
 pub(crate) fn write(path: &str, m: &Manifest) -> Result<(), String> {
