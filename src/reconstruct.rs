@@ -310,14 +310,26 @@ fn retention_key(token: &str) -> String {
         .to_lowercase()
 }
 
+fn is_protected_key(key: &str) -> bool {
+    let has_digit = key.chars().any(|c| c.is_ascii_digit());
+    if !has_digit || key.len() < 2 {
+        return false;
+    }
+    let has_separator = key.chars().any(|c| matches!(c, '.' | ','));
+    let long_alpha_run = key
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .any(|part| part.len() > 3);
+    // Keep compact identifiers/units (e.g. CPMK1, 4x), but not OCR words
+    // accidentally glued to a number (e.g. 14.menganalisis).
+    !(has_separator && long_alpha_run)
+}
+
 fn protected_tokens(source: &PageJson) -> Vec<String> {
     let mut tokens = std::collections::BTreeSet::new();
     for text in source.ocr_boxes.iter().map(|box_| box_.text.as_str()) {
         for token in text.split_whitespace() {
             let key = retention_key(token);
-            if key.chars().any(|c| c.is_ascii_digit())
-                && (key.len() >= 2 || key.chars().any(|c| c == '%'))
-            {
+            if is_protected_key(&key) {
                 tokens.insert(key);
             }
         }
@@ -397,7 +409,7 @@ fn choose_input_dir(json_dir: &str) -> PathBuf {
 
 #[cfg(test)]
 mod validation_tests {
-    use super::{choose_input_dir, finalize_document, normalized_contains};
+    use super::{choose_input_dir, finalize_document, is_protected_key, normalized_contains};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -407,6 +419,14 @@ mod validation_tests {
         assert!(!normalized_contains("Header 2024", "Header 2025"));
     }
 
+    #[test]
+    fn ignores_numbers_glued_to_ocr_words_but_keeps_identifiers() {
+        assert!(is_protected_key("cpmk1"));
+        assert!(is_protected_key("4x"));
+        assert!(is_protected_key("186/pmk.01/2021"));
+        assert!(!is_protected_key("14.menganalisis"));
+        assert!(!is_protected_key("1.10etika"));
+    }
     #[test]
     fn finalization_removes_all_page_markers() {
         let result = finalize_document("<!-- PAGE 1 -->\nTitle\n<!-- PAGE 2 -->").unwrap();
