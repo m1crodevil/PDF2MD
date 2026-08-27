@@ -52,7 +52,9 @@ pub(crate) fn annotate_directory(input: &str) -> Result<(), String> {
         page.furniture = furniture;
         page.filtered_ocr_boxes = Some(retained);
         let path = output.join(format!("page_{:03}.json", page.page));
-        fs::write(path, serde_json::to_string_pretty(&page).unwrap()).map_err(|e| e.to_string())?;
+        let json = serde_json::to_string_pretty(&page)
+            .map_err(|e| format!("serialize page {}: {}", page.page, e))?;
+        fs::write(path, json).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
