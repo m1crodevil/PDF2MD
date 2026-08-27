@@ -143,24 +143,19 @@ cargo test
 cargo build --release
 ```
 
-### Quality evaluation
+### Quality check
 
-The repository includes a deterministic, dependency-free evaluator for the first
-quality gate. It measures normalized CER/WER, numeric-token retention, Markdown
-sanity, page coverage, and table presence:
+Run the deterministic smoke evaluator:
 
 ```bash
 python3 scripts/evaluate_quality.py \
   --fixtures tests/fixtures/quality \
-  --json target/quality-report.json \
-  --max-cer 1.0 --max-wer 1.0 --min-numeric-recall 1.0
+  --json target/quality-report.json
 ```
 
-The committed fixture is a smoke test only; production claims require a licensed,
-representative PDF corpus with human-verified gold text/layout and separate test
-splits. Keep generated reports under `target/` and inspect failed pages manually.
-Thresholds are explicit CLI inputs so CI can tighten them after a real baseline is
-measured; the committed smoke fixture does not claim production OCR accuracy.
+It checks CER/WER, numeric retention, Markdown validity, page coverage, and tables.
+The fixture is only a smoke test; production validation needs a licensed PDF corpus
+with verified text and layout ground truth.
 
 The project intentionally keeps deterministic extraction and validation as the
 default path. VLM processing is planned for pages whose visual risk signals justify
