@@ -62,11 +62,14 @@ def needs_medium(layout):
 
 def run_page(ld, engines, png_path):
     layout = run_layout(ld, png_path)
-    size = "medium" if needs_medium(layout) else "small"
+    # Layout misses are not blank pages: retry full-page OCR with the stronger
+    # model before allowing the Rust orchestrator to classify the page as blank.
+    fallback = not layout.get("layout_regions")
+    size = "medium" if fallback or needs_medium(layout) else "small"
     if size not in engines:
         import faster_paddle
         engines[size] = faster_paddle.OcrEngine(model_size=size, threads=8)
-    output = {"png": png_path, "ocr_model": size}
+    output = {"png": png_path, "ocr_model": size, "layout_fallback": fallback}
     output.update(layout)
     output.update(run_ocr(engines[size], png_path))
     return output

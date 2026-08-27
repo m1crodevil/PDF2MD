@@ -71,7 +71,7 @@ pub(crate) fn is_blank_image(png: &Path) -> bool {
         .args([
             "-c",
             &format!(
-                "from PIL import Image; im=Image.open('{}').convert('L'); w,h=im.size; c=im.crop((w//4,h//4,3*w//4,3*h//4)); p=list(c.getdata()); print('BLANK' if sum(p)/len(p)>250 else 'NO')",
+                "from PIL import Image; im=Image.open('{}').convert('L'); p=list(im.getdata()); print('BLANK' if sum(x<245 for x in p)/len(p)<0.0005 else 'NO')",
                 png.display()
             ),
         ])
