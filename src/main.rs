@@ -4,6 +4,8 @@ mod furniture;
 mod ir;
 mod manifest;
 mod page;
+#[cfg(feature = "pdfium")]
+mod pdfium_backend;
 mod pdfoxide_backend;
 mod reconstruct;
 mod report;
@@ -81,7 +83,24 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
                     .and_then(|page| write_page_json(&json_path, &page))
                 {
                     Ok(_) => continue,
-                    Err(error) => eprintln!("PDFOxide fallback to OCR: {}", error),
+                    Err(error) => {
+                        eprintln!("PDFOxide fallback to OCR: {}", error);
+                        #[cfg(feature = "pdfium")]
+                        {
+                            let qa_path = std::path::Path::new(&tmp_dir)
+                                .join(format!("page_{page_num:03}_pdfium.png"));
+                            match pdfium_backend::render_page(
+                                std::path::Path::new(&cli.pdf),
+                                page_num - 1,
+                                &qa_path,
+                            ) {
+                                Ok(()) => eprintln!("PDFium QA render: {}", qa_path.display()),
+                                Err(render_error) => {
+                                    eprintln!("PDFium QA render unavailable: {render_error}")
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
