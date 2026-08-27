@@ -303,8 +303,16 @@ fn finalize_document(markdown: &str) -> Result<String, String> {
 }
 
 fn normalized_contains(haystack: &str, needle: &str) -> bool {
-    let haystack = haystack.split_whitespace().collect::<Vec<_>>().join(" ");
-    let needle = needle.split_whitespace().collect::<Vec<_>>().join(" ");
+    let haystack = haystack
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    let needle = needle
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
     !needle.is_empty() && haystack.contains(&needle)
 }
 
