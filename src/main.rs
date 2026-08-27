@@ -22,6 +22,7 @@ use report::*;
 use types::{BatchHelper, Cli, Commands, OcrArgs};
 
 fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
+    preflight_ocr_dependencies(&cli.helper)?;
     let pdf_total = pdf_page_count(&cli.pdf)?;
     let configured_total = cli.total.unwrap_or(pdf_total);
     if configured_total == 0 || configured_total > pdf_total {
@@ -115,6 +116,36 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
         return Err(format!("OCR completed with {} page errors", errors));
     }
     Ok(())
+}
+
+fn preflight_ocr_dependencies(helper: &str) -> Result<(), String> {
+    for (command, version_arg) in [
+        ("pdfinfo", "-v"),
+        ("pdftoppm", "-v"),
+        ("python3", "--version"),
+    ] {
+        require_command(command, version_arg)?;
+    }
+    if !std::path::Path::new(helper).is_file() {
+        return Err(format!("missing OCR helper script: {}", helper));
+    }
+    Ok(())
+}
+
+fn require_command(command: &str, version_arg: &str) -> Result<(), String> {
+    let output = std::process::Command::new(command)
+        .arg(version_arg)
+        .output()
+        .map_err(|e| format!("missing required dependency '{}': {}", command, e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "required dependency '{}' is not executable: {}",
+            command,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
 }
 
 fn pdf_page_count(pdf: &str) -> Result<usize, String> {
