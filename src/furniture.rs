@@ -51,10 +51,48 @@ pub(crate) fn annotate_directory(input: &str) -> Result<(), String> {
         }
         page.furniture = furniture;
         page.filtered_ocr_boxes = Some(retained);
+        validate_filtered_page(&page)?;
         let path = output.join(format!("page_{:03}.json", page.page));
         let json = serde_json::to_string_pretty(&page)
             .map_err(|e| format!("serialize page {}: {}", page.page, e))?;
         fs::write(path, json).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn validate_filtered_page(page: &PageJson) -> Result<(), String> {
+    let retained = page
+        .filtered_ocr_boxes
+        .as_ref()
+        .ok_or_else(|| format!("page {} has no filtered box selection", page.page))?;
+    let mut seen = HashSet::new();
+    for &idx in retained {
+        if idx >= page.ocr_boxes.len() || !seen.insert(idx) {
+            return Err(format!(
+                "page {} has invalid filtered OCR index {}",
+                page.page, idx
+            ));
+        }
+    }
+    for annotation in &page.furniture {
+        if annotation.role.is_empty() || annotation.reason.is_empty() {
+            return Err(format!(
+                "page {} has incomplete furniture metadata",
+                page.page
+            ));
+        }
+        if !page.ocr_boxes.iter().any(|b| b.text == annotation.text) {
+            return Err(format!(
+                "page {} furniture text is absent from raw OCR: {}",
+                page.page, annotation.text
+            ));
+        }
+        if annotation.confidence < 0.0 || annotation.confidence > 1.0 {
+            return Err(format!(
+                "page {} has invalid furniture confidence",
+                page.page
+            ));
+        }
     }
     Ok(())
 }
