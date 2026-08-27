@@ -11,11 +11,15 @@ reconstruction.
 ## How it works
 
 ```text
-PDF → render/OCR → page JSON → Markdown reconstruction → document.md
+PDF → probe → PDFOxide or OCR/PP-DocLayout → page JSON → Markdown reconstruction
 ```
 
-- `ocr` renders pages and writes one JSON file per page.
+- `ocr` probes each page first: text-rich pages use PDFOxide; image-only or
+  text-insufficient pages use the existing PDF render + PP-DocLayout +
+  `faster_paddle` medium route.
 - `reconstruct` validates those JSON files and turns them into Markdown.
+- Optional `pdfium` support renders bounded visual-QA artifacts when native
+  extraction fails; it is not required for the default route.
 - The final output includes per-page Markdown, `document.md`, and a manifest.
 - Quality checks catch missing page markers, lost numeric tokens, malformed tables,
   and invalid OCR results.
@@ -51,6 +55,13 @@ cargo build --release
 The dependency check covers `cargo`, `curl`, `pdfinfo`, `pdftoppm`, `python3`,
 `paddleocr`, and `faster_paddle`. Page count is discovered automatically; use
 `--start`, `--end`, and optionally `--total` for bounded ranges.
+
+To build the optional PDFium path:
+
+```bash
+cargo check --features pdfium
+PDFIUM_LIBRARY_PATH=/path/to/libpdfium.so cargo test --features pdfium --all-targets
+```
 
 ## Configuration
 
