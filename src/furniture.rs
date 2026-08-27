@@ -74,6 +74,20 @@ fn validate_filtered_page(page: &PageJson) -> Result<(), String> {
             ));
         }
     }
+    let retained_set = retained.iter().copied().collect::<HashSet<_>>();
+    for annotation in &page.furniture {
+        if !page
+            .ocr_boxes
+            .iter()
+            .enumerate()
+            .any(|(idx, b)| b.text == annotation.text && !retained_set.contains(&idx))
+        {
+            return Err(format!(
+                "page {} furniture text was not excluded from filtered selection: {}",
+                page.page, annotation.text
+            ));
+        }
+    }
     for annotation in &page.furniture {
         if annotation.role.is_empty() || annotation.reason.is_empty() {
             return Err(format!(
