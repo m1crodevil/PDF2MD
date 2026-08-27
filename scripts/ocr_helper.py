@@ -65,7 +65,9 @@ def run_page(ld, engines, png_path):
     # Layout misses are not blank pages: retry full-page OCR with the stronger
     # model before allowing the Rust orchestrator to classify the page as blank.
     fallback = not layout.get("layout_regions")
-    size = "medium" if fallback or needs_medium(layout) else "small"
+    # ponytail: medium is the quality default; small remains available for explicit
+    # future benchmarking, but legal-token loss is costlier than OCR throughput.
+    size = "medium"
     if size not in engines:
         import faster_paddle
         engines[size] = faster_paddle.OcrEngine(model_size=size, threads=8)
