@@ -4,6 +4,7 @@ mod furniture;
 mod ir;
 mod manifest;
 mod page;
+mod pdfoxide_backend;
 mod reconstruct;
 mod report;
 mod types;
