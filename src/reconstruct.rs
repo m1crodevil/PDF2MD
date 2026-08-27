@@ -386,9 +386,21 @@ fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<()
     Ok(())
 }
 
+fn choose_input_dir(json_dir: &str) -> PathBuf {
+    let filtered = Path::new(json_dir).join("filtered");
+    if filtered.is_dir() {
+        filtered
+    } else {
+        PathBuf::from(json_dir)
+    }
+}
+
 #[cfg(test)]
 mod validation_tests {
-    use super::{finalize_document, normalized_contains};
+    use super::{choose_input_dir, finalize_document, normalized_contains};
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     #[test]
     fn rejects_furniture_with_whitespace_variants() {
         assert!(normalized_contains("Header 2025", " Header   2025 "));
@@ -400,6 +412,23 @@ mod validation_tests {
         let result = finalize_document("<!-- PAGE 1 -->\nTitle\n<!-- PAGE 2 -->").unwrap();
         assert_eq!(result, "Title");
         assert!(!result.contains("<!-- PAGE"));
+    }
+
+    #[test]
+    fn prefers_filtered_directory_and_falls_back_to_raw() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("pdf2md-filtered-test-{}", suffix));
+        fs::create_dir_all(root.join("filtered")).unwrap();
+        assert_eq!(
+            choose_input_dir(root.to_str().unwrap()),
+            root.join("filtered")
+        );
+        fs::remove_dir_all(root.join("filtered")).unwrap();
+        assert_eq!(choose_input_dir(root.to_str().unwrap()), root);
+        fs::remove_dir_all(root).unwrap();
     }
 }
 
@@ -455,14 +484,7 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         })?;
     }
 
-    let input_dir = {
-        let filtered = Path::new(&args.json_dir).join("filtered");
-        if filtered.is_dir() {
-            filtered
-        } else {
-            PathBuf::from(&args.json_dir)
-        }
-    };
+    let input_dir = choose_input_dir(&args.json_dir);
     let mut files: Vec<PathBuf> = fs::read_dir(&input_dir)
         .map_err(|e| format!("read dir {}: {}", input_dir.display(), e))?
         .flatten()
