@@ -19,7 +19,7 @@ use config::load as load_config;
 
 use furniture::annotate_directory;
 use page::process_page;
-use pdfoxide_backend::probe_page;
+use pdfoxide_backend::{extract_page, probe_page};
 use reconstruct::run as run_reconstruct;
 use report::*;
 use types::{BatchHelper, Cli, Commands, OcrArgs};
@@ -76,6 +76,14 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
                 probe.native_text_chars,
                 probe.backend(20)
             );
+            if probe.backend(20) == crate::ir::Backend::PdfOxide {
+                match extract_page(std::path::Path::new(&cli.pdf), page_num - 1)
+                    .and_then(|page| write_page_json(&json_path, &page))
+                {
+                    Ok(_) => continue,
+                    Err(error) => eprintln!("PDFOxide fallback to OCR: {}", error),
+                }
+            }
         }
 
         match process_page(cli, page_num, &tmp_dir, &regex_fixes, &mut helper) {
