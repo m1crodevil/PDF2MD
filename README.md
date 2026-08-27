@@ -35,106 +35,65 @@ are not a guarantee that the document was understood correctly.
 ## Current limits
 
 PDF2MD is not a replacement for visual document understanding. It may struggle
-with:
-
-- charts, plots, and diagrams;
-- information stored only inside images;
-- complex figure/legend relationships;
-- cross-page tables and unusual multi-column layouts.
-
-Those pages are flagged for review instead of being presented as reliably
-understood.
+with charts, plots, diagrams, image-only information, complex figure/legend
+relationships, cross-page tables, and unusual multi-column layouts. Those pages
+are flagged for review instead of being presented as reliably understood.
 
 ## Quick start
-
-Build the binary and check the local dependencies:
 
 ```bash
 cargo build --release
 ./scripts/check-deps.sh
-```
-
-The dependency check covers `cargo`, `curl`, `pdfinfo`, `pdftoppm`, `python3`,
-`paddleocr`, and `faster_paddle`.
-
-Run OCR:
-
-```bash
-./target/release/pdf2md ocr \
-  --pdf ./input.pdf \
-  --outdir ./json
-```
-
-The page count is discovered from the PDF automatically. Use `--start`, `--end`,
-and optionally `--total` to process a bounded range. Ranges are checked before
-rendering starts, and any page error makes the command exit non-zero.
-
-Reconstruct Markdown:
-
-```bash
+./target/release/pdf2md ocr --pdf ./input.pdf --outdir ./json
 ./target/release/pdf2md reconstruct --concurrency 2
 ```
 
-Run `--help` on either command for the complete option list.
+The dependency check covers `cargo`, `curl`, `pdfinfo`, `pdftoppm`, `python3`,
+`paddleocr`, and `faster_paddle`. Page count is discovered automatically; use
+`--start`, `--end`, and optionally `--total` for bounded ranges.
 
 ## Configuration
 
-The portable template lives at:
-
-```text
-config/pdf2md.toml
-```
-
-Keep machine-specific settings in the ignored local override when needed:
-
-```text
-config/pdf2md.local.toml
-```
-
-If `config/pdf2md.local.toml` exists, it is authoritative and parse errors stop the
-program instead of silently falling back. Without it, the portable template is used.
-Generated run bundles under `runs/` are local artifacts and are ignored by Git.
-
-Keep API keys in `.env` or the environment. Never commit credentials. A typical
-local setup provides:
-
-```dotenv
-PDF2MD_API_KEY=...
-PDF2MD_BASE_URL=https://your-llm-endpoint/v1
-PDF2MD_MODEL=your-model
-PDF2MD_REASONING_EFFORT=none
-```
-
-`reconstruct` fails fast when the endpoint or model is missing. It reads
-`message.content` from the configured API response; provider reasoning fields are
-not treated as Markdown.
+The portable template is `config/pdf2md.toml`; machine-specific overrides belong
+in ignored `config/pdf2md.local.toml`. Keep API keys in `.env` or the environment,
+never in Git. `reconstruct` fails fast when endpoint or model configuration is missing.
 
 ## Output and resume behavior
 
-OCR writes page JSON containing layout regions, OCR boxes, confidence, cleaned and
-raw text, quality data, and risk flags.
+OCR writes page JSON with layout regions, OCR boxes, confidence, cleaned/raw text,
+quality data, and risk flags. Reconstruction writes per-page Markdown,
+`document.md`, `manifest.json`, and `.cache/reconstruct/`. Existing Markdown and
+cache entries are reused only after Markdown and retention validation.
 
-Reconstruction writes:
+## Legal-document quality contract
 
-```text
-<outdir>/<pdf-stem>/
-├── md/page_001.md
-├── document.md
-├── manifest.json
-└── .cache/reconstruct/
+For legal documents, `faster_paddle` **medium** is the default OCR model. OCR detection
+and LLM reconstruction are separate stages. Amounts, dates, percentages, units,
+identifiers, legal punctuation, and numeric references found by OCR are protected
+tokens and must survive reconstruction. Classified repeated page furniture is
+excluded; uncertain text is preserved.
+
+If a protected token is lost, reconstruction writes a deterministic OCR-text
+fallback and marks the page as a hard `quality_failed`/review candidate rather than
+silently accepting incomplete Markdown. Cache hits are validated again. Confidence
+alone is not a production gate, and visual/table understanding still requires review.
+
+Run deterministic checks:
+
+```bash
+cargo fmt --all -- --check
+cargo test --all-targets
+cargo clippy --all-targets --all-features -- -D warnings
+git diff --check
+python3 scripts/evaluate_quality.py --fixtures tests/fixtures/quality
+python3 scripts/check_regression_fixture.py tests/fixtures/pojk75
 ```
 
-Existing Markdown is reused only when it passes validation. Validated responses
-are also cached by model, prompt, and page JSON, so changing any of those inputs
-naturally creates a new cache entry.
-
-Malformed JSON, a page-number mismatch, or a page status other than `success` is
-rejected before an LLM request. A run can still write its manifest, but exits
-non-zero when one or more pages fail.
+The POJK fixture records a regression contract while source PDFs and live OCR/LLM
+outputs remain outside Git. Live benchmarks are separate because model/API results
+vary; production validation needs a ground-truth corpus.
 
 ## Development
-
-Run the standard checks:
 
 ```bash
 cargo fmt -- --check
@@ -143,27 +102,11 @@ cargo test
 cargo build --release
 ```
 
-### Quality check
-
-Run the deterministic smoke evaluator:
-
-```bash
-python3 scripts/evaluate_quality.py \
-  --fixtures tests/fixtures/quality \
-  --json target/quality-report.json
-```
-
-It checks CER/WER, numeric retention, Markdown validity, page coverage, and tables.
-The fixture is only a smoke test; production validation needs a licensed PDF corpus
-with verified text and layout ground truth.
-
-The project intentionally keeps deterministic extraction and validation as the
-default path. VLM processing is planned for pages whose visual risk signals justify
-the extra cost.
+The deterministic evaluator checks CER/WER, numeric retention, Markdown validity,
+page coverage, and tables. VLM processing remains opt-in for pages whose visual risk
+signals justify the cost.
 
 ## Upstream projects
-
-PDF2MD uses the Paddle ecosystem for OCR and layout detection:
 
 - [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)
 - [PaddleX](https://github.com/PaddlePaddle/PaddleX)

@@ -73,6 +73,9 @@ fn load_env_value(name: &str, env_file: &str) -> Option<String> {
 }
 
 fn build_prompt(page_num: usize, markdown_hint: &str) -> String {
+    let protected = serde_json::from_str::<PageJson>(markdown_hint)
+        .map(|source| protected_tokens(&source).join(", "))
+        .unwrap_or_default();
     format!(
         "You are a universal PDF page reconstruction and readability engine.\n\n\
 Turn ONE supplied PDF-page JSON into Markdown that is faithful to the source and\neasy for a human to understand. Improve readability through structure, grouping,\nheadings, spacing, and clear Markdown — never by inventing facts or changing\nmeaning. This must work for lecture notes, books, reports, articles, forms,\ninvoices, slides, technical documents, and mixed-layout pages.\n\n\
@@ -93,19 +96,20 @@ READABILITY AND STRUCTURE:\n\
 - Represent lists as Markdown bullets or numbered lists when list structure is\n  supported. Keep list nesting when it is visible.\n\
 - Represent tables as Markdown tables only when row and column relationships are\n  reliably recoverable and the table is narrow enough to remain readable. For\n  wide tables or cells containing long prose, use a structured sequence of row\n  headings and labeled fields instead; do not force dense content into narrow\n  Markdown columns. If uncertain, use ordered lines or a simple list instead of\n  inventing columns.\n
 - Preserve quotations, definitions, examples, warnings, formulas, code, and\n  symbolic expressions with the closest readable Markdown structure.\n\
-RETENTION CHECK: Before finalizing, compare every numeric value, date, currency, percentage, formula, unit, and identifier in the OCR boxes with the Markdown. Preserve each one exactly. If table structure is uncertain, emit the evidence as plain text or labeled lines rather than dropping it.\n\\
+RETENTION CHECK: Before finalizing, compare every numeric value, date, currency, percentage, formula, unit, and identifier in the OCR boxes with the Markdown. Preserve each one exactly, including punctuation in legal citations and amounts. Never omit a token merely because it looks like a page marker; preprocessing has already handled furniture. If table structure is uncertain, emit the evidence as plain text or labeled lines rather than dropping it.\n\\
 HEADER AND FOOTER POLICY:\n- The input may contain repeated running headers, running footers, page numbers,\n  document titles, captions, and labels.\n- The JSON may include `furniture` annotations and `filtered_ocr_boxes`. These are\n  preprocessing evidence, not new document content.\n- Treat `furniture` entries with role `repeated_page_furniture_candidate` as\n  removable candidates only; do not reproduce them unless nearby layout evidence\n  shows they are substantive content.\n- Use `filtered_ocr_boxes` as the preferred content set. Consult other OCR boxes\n  only to resolve reading order or ambiguity, never to restore a removed candidate.\n- Preserve titles, chapter/section/article headings, captions, legal references,\n  dates, amounts, formulas, signatures, and page-specific content.\n- Remove only text explicitly classified as repeated page furniture by the\n  cross-page preprocessing step. Never infer a removal from position alone.\n- When classification is absent or uncertain, preserve the text.\n- Do not restore text marked as removed page furniture.\n\
 - Use whitespace and concise structural Markdown to make the page easy to scan,\n  but do not add decorative content.\n\n\
 NON-TEXT OBJECTS:\n
 - Do not invent descriptions or interpretations of images, charts, diagrams, or\n  logos. Preserve available captions, labels, and recoverable text.\n\
 - If a visual object has no recoverable text, omit it rather than hallucinating.\n\n\
-OUTPUT CONTRACT:\n\
-- Output only the reconstructed Markdown. No preamble, explanation, JSON, YAML,\n  front matter, or fenced Markdown wrapper.\n\
-- Add exactly one page marker as the first line: <!-- PAGE {} -->\n\
-- Do not add any other page marker.\n\
-- Do not add a title or heading unless supported by the page content.\n\n\
+OUTPUT CONTRACT:\n\\
+- Output only the reconstructed Markdown. No preamble, explanation, JSON, YAML,\n  front matter, or fenced Markdown wrapper.\n\\
+- Add exactly one page marker as the first line: <!-- PAGE {} -->\n\\
+- Do not add any other page marker.\n\\
+- Do not add a title or heading unless supported by the page content.\n\n\\
+MANDATORY PROTECTED TOKENS (copy verbatim; do not omit or normalize):\n{}\n\\
 OCR and layout JSON input:\n{}",
-        page_num, markdown_hint
+        page_num, protected, markdown_hint
     )
 }
 
@@ -232,10 +236,13 @@ fn reconstruct_one(
         .first()
         .and_then(|choice| choice.message.content.as_deref())
         .ok_or_else(|| "missing choices[0].message.content".to_string())?;
-    if let Err(first) =
-        validate_markdown(md, page_num).and_then(|_| validate_retention(&input, md, page_num))
-    {
-        return Err(first.to_string());
+    validate_markdown(md, page_num)?;
+    if let Err(retention_error) = validate_retention(&input, md, page_num) {
+        let fallback = deterministic_fallback(&source, page_num);
+        fs::write(&out_path, &fallback)
+            .map_err(|e| format!("write fallback {}: {}", out_path.display(), e))?;
+        eprintln!("[md][FALLBACK] p{:03}: {}", page_num, retention_error);
+        return Err(retention_error);
     }
     fs::write(&out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
     fs::write(&cache_path, md)
@@ -330,12 +337,40 @@ fn protected_tokens(source: &PageJson) -> Vec<String> {
     for text in source.ocr_boxes.iter().map(|box_| box_.text.as_str()) {
         for token in text.split_whitespace() {
             let key = retention_key(token);
+            if is_page_marker_key(&key) {
+                continue;
+            }
             if is_protected_key(&key) {
                 tokens.insert(key);
             }
         }
     }
     tokens.into_iter().collect()
+}
+
+fn is_page_marker_key(key: &str) -> bool {
+    let trimmed = key.trim_matches(['-', '–', '—']);
+    !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit())
+}
+
+fn deterministic_fallback(source: &PageJson, page_num: usize) -> String {
+    let mut text = format!("<!-- PAGE {} -->\n\n", page_num);
+    let indices = source
+        .filtered_ocr_boxes
+        .as_deref()
+        .filter(|indices| !indices.is_empty())
+        .map(|indices| indices.to_vec())
+        .unwrap_or_else(|| (0..source.ocr_boxes.len()).collect());
+    for index in indices {
+        if let Some(box_) = source.ocr_boxes.get(index) {
+            let line = box_.text.trim();
+            if !line.is_empty() {
+                text.push_str(line);
+                text.push_str("  \n");
+            }
+        }
+    }
+    text
 }
 
 fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<(), String> {
@@ -686,8 +721,14 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::cache_key;
+    use super::{cache_key, is_page_marker_key, retention_key};
 
+    #[test]
+    fn page_markers_are_excluded_but_legal_tokens_are_retained() {
+        assert!(is_page_marker_key(&retention_key("- 2 -")));
+        assert!(!is_page_marker_key(&retention_key("Kep-40/PM/2003")));
+        assert_eq!(retention_key("Rp3.000.000.000,00"), "rp3.000.000.000,00");
+    }
     #[test]
     fn cache_key_is_deterministic_and_sensitive() {
         let k1 = cache_key("m", "p", "j");
