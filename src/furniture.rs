@@ -38,12 +38,25 @@ pub(crate) fn annotate_directory(input: &str) -> Result<(), String> {
         let mut retained = Vec::new();
         for (idx, b) in page.ocr_boxes.iter().enumerate() {
             let repeated = frequency.get(&normalize(&b.text)).copied().unwrap_or(0) >= 3;
-            if is_edge(b, &page.ocr_boxes) && eligible_candidate(&b.text) && repeated {
+            let page_number = is_page_number_marker(&b.text) && is_edge(b, &page.ocr_boxes);
+            let repeated_furniture =
+                is_edge(b, &page.ocr_boxes) && eligible_candidate(&b.text) && repeated;
+            if page_number || repeated_furniture {
                 furniture.push(FurnitureAnnotation {
                     text: b.text.clone(),
-                    role: "repeated_page_furniture_candidate".into(),
-                    confidence: 0.75,
-                    reason: "normalized text repeats in page edge zones".into(),
+                    role: if page_number {
+                        "page_number_edge"
+                    } else {
+                        "repeated_page_furniture_candidate"
+                    }
+                    .into(),
+                    confidence: if page_number { 0.95 } else { 0.75 },
+                    reason: if page_number {
+                        "numeric page marker in page edge zone"
+                    } else {
+                        "normalized text repeats in page edge zones"
+                    }
+                    .into(),
                 });
             } else {
                 retained.push(idx);
@@ -124,6 +137,15 @@ fn eligible_candidate(text: &str) -> bool {
         && normalized.chars().any(|c| c.is_alphabetic())
 }
 
+fn is_page_number_marker(text: &str) -> bool {
+    let normalized = normalize(text);
+    let digits = normalized.chars().filter(|c| c.is_ascii_digit()).count();
+    digits > 0
+        && normalized
+            .chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, '-' | '–' | '—' | ' '))
+}
+
 fn is_edge(b: &OcrBox, boxes: &[OcrBox]) -> bool {
     let min = boxes
         .iter()
@@ -140,7 +162,7 @@ fn is_edge(b: &OcrBox, boxes: &[OcrBox]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize, validate_filtered_page};
+    use super::{is_edge, is_page_number_marker, normalize, validate_filtered_page};
     use crate::types::{OcrBox, PageJson, PageQuality, Timings};
 
     fn page() -> PageJson {
@@ -176,6 +198,34 @@ mod tests {
     #[test]
     fn normalizes_only_for_comparison() {
         assert_eq!(normalize(" Header   2025 "), "header 2025");
+    }
+
+    #[test]
+    fn detects_page_number_shape_without_matching_content_numbers() {
+        assert!(is_page_number_marker("- 2 -"));
+        assert!(is_page_number_marker("– 12 –"));
+        assert!(!is_page_number_marker("Pasal 2"));
+        assert!(!is_page_number_marker("Revenue 2025"));
+    }
+
+    #[test]
+    fn page_number_requires_edge_position() {
+        let boxes = vec![
+            OcrBox {
+                text: "- 2 -".into(),
+                text_raw: None,
+                confidence: 0.9,
+                bbox: [0.0, 10.0, 10.0, 20.0],
+            },
+            OcrBox {
+                text: "body".into(),
+                text_raw: None,
+                confidence: 0.9,
+                bbox: [0.0, 90.0, 10.0, 100.0],
+            },
+        ];
+        assert!(is_edge(&boxes[0], &boxes));
+        assert!(is_edge(&boxes[1], &boxes));
     }
 
     #[test]
