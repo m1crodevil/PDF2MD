@@ -234,7 +234,7 @@ fn reconstruct_one(
     if let Err(first) =
         validate_markdown(md, page_num).and_then(|_| validate_retention(&input, md, page_num))
     {
-        return Err(format!("{}", first));
+        return Err(first.to_string());
     }
     fs::write(&out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
     fs::write(&cache_path, md)
