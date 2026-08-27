@@ -140,9 +140,62 @@ fn is_edge(b: &OcrBox, boxes: &[OcrBox]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize;
+    use super::{normalize, validate_filtered_page};
+    use crate::types::{OcrBox, PageJson, PageQuality, Timings};
+
+    fn page() -> PageJson {
+        PageJson {
+            status: "success".into(),
+            page: 1,
+            blank: false,
+            png: None,
+            dpi: 150,
+            layout_regions: Vec::new(),
+            ocr_boxes: vec![OcrBox {
+                text: "Running header".into(),
+                text_raw: None,
+                confidence: 0.9,
+                bbox: [0.0, 0.0, 10.0, 10.0],
+            }],
+            reading_order: Vec::new(),
+            risk_flags: Vec::new(),
+            quality: PageQuality::default(),
+            furniture: Vec::new(),
+            filtered_ocr_boxes: Some(vec![0]),
+            ocr_model: None,
+            timings: Timings {
+                render: 0.0,
+                layout: 0.0,
+                ocr: 0.0,
+                cleanup: 0.0,
+                total: 0.0,
+            },
+        }
+    }
+
     #[test]
     fn normalizes_only_for_comparison() {
         assert_eq!(normalize(" Header   2025 "), "header 2025");
+    }
+
+    #[test]
+    fn filtered_selection_must_be_valid() {
+        let mut page = page();
+        assert!(validate_filtered_page(&page).is_ok());
+        page.filtered_ocr_boxes = Some(vec![1]);
+        assert!(validate_filtered_page(&page).is_err());
+    }
+
+    #[test]
+    fn legacy_json_without_furniture_fields_still_loads() {
+        let mut value = serde_json::to_value(page()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("furniture");
+        object.remove("filtered_ocr_boxes");
+        object.remove("ocr_model");
+        let loaded: PageJson = serde_json::from_value(value).unwrap();
+        assert!(loaded.furniture.is_empty());
+        assert!(loaded.filtered_ocr_boxes.is_none());
+        assert!(loaded.ocr_model.is_none());
     }
 }
