@@ -209,9 +209,29 @@ pub(crate) fn process_page(
 
     // Step 3: Python helper (layout + OCR) — batch mode, models already initialized
     let helper_out = helper.process(&png)?;
+    if helper_out
+        .get("layout_regions")
+        .and_then(|v| v.as_array())
+        .is_none()
+    {
+        return Err("OCR helper returned no PP-DocLayout result".to_string());
+    }
+    if helper_out
+        .get("ocr_boxes_raw")
+        .and_then(|v| v.as_array())
+        .is_none()
+    {
+        return Err("OCR helper returned no OCR boxes".to_string());
+    }
     let layout_time = helper_out["layout_time"].as_f64().unwrap_or(0.0);
     let ocr_time = helper_out["ocr_time"].as_f64().unwrap_or(0.0);
     let ocr_model = helper_out["ocr_model"].as_str().map(str::to_owned);
+    if ocr_model.as_deref() != Some("medium") {
+        return Err(format!(
+            "OCR helper used unexpected model: {}",
+            ocr_model.as_deref().unwrap_or("missing")
+        ));
+    }
 
     // Step 4: Parse layout regions
     let mut layout_regions: Vec<LayoutRegion> = Vec::new();
