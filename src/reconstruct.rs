@@ -113,8 +113,11 @@ OCR and layout JSON input:\n{}",
     )
 }
 
+const CACHE_SCHEMA_VERSION: &str = "reconstruct-cache-v2";
+
 fn cache_key(model: &str, prompt: &str, input_json: &str) -> String {
     let mut hasher = Sha256::new();
+    hasher.update(CACHE_SCHEMA_VERSION.as_bytes());
     hasher.update(model.as_bytes());
     hasher.update(b"\n");
     hasher.update(prompt.as_bytes());
