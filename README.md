@@ -76,18 +76,18 @@ quality data, and risk flags. Reconstruction writes per-page Markdown,
 `document.md`, `manifest.json`, and `.cache/reconstruct/`. Existing Markdown and
 cache entries are reused only after Markdown and retention validation.
 
-## Legal-document quality contract
+## Universal content-quality contract
 
-For legal documents, `faster_paddle` **medium** is the default OCR model. OCR detection
-and LLM reconstruction are separate stages. Amounts, dates, percentages, units,
-identifiers, legal punctuation, and numeric references found by OCR are protected
-tokens and must survive reconstruction. Classified repeated page furniture is
-excluded; uncertain text is preserved.
+`faster_paddle` **medium** is the default OCR model for rendered pages. OCR acquisition
+and optional reconstruction are separate stages. Numbers, dates, units, identifiers,
+formulas, and other configured protected tokens found in source evidence must survive
+reconstruction. Classified repeated page furniture may be excluded; uncertain content
+is preserved.
 
-If a protected token is lost, reconstruction writes a deterministic OCR-text
-fallback and marks the page as a hard `quality_failed`/review candidate rather than
-silently accepting incomplete Markdown. Cache hits are validated again. Confidence
-alone is not a production gate, and visual/table understanding still requires review.
+If protected content is lost, reconstruction writes a deterministic source-text
+fallback and marks the page as `quality_failed`/review candidate rather than silently
+accepting incomplete Markdown. Cache hits are validated again. Confidence alone is
+not a production gate, and tables, figures, forms, and visual regions may require review.
 
 Run deterministic checks:
 

@@ -3,6 +3,7 @@ use std::fs;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct Manifest {
+    pub schema_version: String,
     pub mode: String,
     pub input: String,
     pub output_dir: String,

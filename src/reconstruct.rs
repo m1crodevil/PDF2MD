@@ -698,6 +698,7 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
             .map_err(|e| format!("write document.md: {}", e))?;
     }
     let manifest = Manifest {
+        schema_version: "pdf2md-manifest-v2".to_string(),
         mode: "reconstruct".to_string(),
         input: args.json_dir.clone(),
         output_dir: bundle_root.display().to_string(),
