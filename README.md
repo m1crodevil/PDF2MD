@@ -117,6 +117,15 @@ The deterministic evaluator checks CER/WER, numeric retention, Markdown validity
 page coverage, and tables. VLM processing remains opt-in for pages whose visual risk
 signals justify the cost.
 
+## Pipeline guarantees and release gate
+
+The OCR command is page-aware and resumable: cached page JSON is skipped, while
+reconstruction uses bounded concurrency and revalidates cached Markdown before reuse.
+Each run writes page results and a manifest; failures remain explicit rather than
+becoming blank pages. The CI gate runs formatting, tests, Clippy, repository hygiene,
+quality fixtures, and the POJK regression contract. A release still requires a live
+document smoke test because OCR and LLM output can vary by model and input.
+
 ## Upstream projects
 
 - [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)
