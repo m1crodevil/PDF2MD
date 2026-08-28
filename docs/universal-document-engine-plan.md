@@ -19,7 +19,7 @@ Sources:
 - OmniDocBench, CVPR 2025: https://arxiv.org/abs/2412.07626
 - OmniDocBench paper: https://openaccess.thecvf.com/content/CVPR2025/papers/Ouyang_OmniDocBench_Benchmarking_Diverse_PDF_Document_Parsing_with_Comprehensive_Annotations_CVPR_2025_paper.pdf
 - PaddleOCR PP-StructureV3: https://paddlepaddle.github.io/PaddleOCR/latest/en/version3.x/pipeline_usage/PP-StructureV3.html
-- PDFium: https://pdfium.googlesource.com/pdfium/+/main/README.md
+
 - Unstructured document transformation guidance: https://unstructured.io/insights/how-to-transform-text-images-documents-for-ai
 
 ## Target architecture
@@ -29,7 +29,7 @@ CLI/config
   -> inspect/probe
   -> page router
        -> native extraction (PDFOxide)
-       -> rendered acquisition (PDFium + OCR)
+       -> rendered acquisition (OCR)
        -> optional visual fallback
   -> mandatory layout/region analysis
   -> versioned document IR
