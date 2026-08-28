@@ -97,10 +97,10 @@ cargo test --all-targets
 cargo clippy --all-targets --all-features -- -D warnings
 git diff --check
 python3 scripts/evaluate_quality.py --fixtures tests/fixtures/quality
-python3 scripts/check_regression_fixture.py tests/fixtures/pojk75
+python3 scripts/check_regression_fixture.py tests/fixtures/legal-regression
 ```
 
-The POJK fixture records a regression contract while source PDFs and live OCR/LLM
+The legal-document fixture records a regression contract while source PDFs and live OCR/LLM
 outputs remain outside Git. Live benchmarks are separate because model/API results
 vary; production validation needs a ground-truth corpus.
 
@@ -123,7 +123,7 @@ The OCR command is page-aware and resumable: cached page JSON is skipped, while
 reconstruction uses bounded concurrency and revalidates cached Markdown before reuse.
 Each run writes page results and a manifest; failures remain explicit rather than
 becoming blank pages. The CI gate runs formatting, tests, Clippy, repository hygiene,
-quality fixtures, and the POJK regression contract. A release still requires a live
+quality fixtures, and the legal-document regression contract. A release still requires a live
 document smoke test because OCR and LLM output can vary by model and input.
 
 ## Upstream projects

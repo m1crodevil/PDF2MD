@@ -1,6 +1,6 @@
-# POJK 75 regression fixture
+# Legal-document regression fixture
 
-This fixture records high-risk assertions from the local POJK 75 PDF without committing the source PDF or OCR artifacts.
+This fixture records high-risk assertions from a local legal-document sample without committing the source PDF or OCR artifacts.
 
 The source PDF is supplied locally at runtime. `manifest.json` identifies the expected page count and protected tokens. A regression run must provide the PDF path and compare the generated JSON/Markdown against these assertions.
 

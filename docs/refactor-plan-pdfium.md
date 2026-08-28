@@ -87,7 +87,7 @@ uses generic `api.example.com`/model placeholders and the public README document
 an OCR-first architecture.
 
 The tracked repository scan found no committed `.env`, private key, home-directory
-path, API token, email address, Telegram ID, or user IP. It did find the POJK
+path, API token, email address, chat ID, or user IP. It did find the legal-document
 fixture name and sample legal tokens, which are domain-specific rather than
 personal data. `data/frequency_dict.txt` contains ordinary lexical entries such as
 “telegram” and “password”; these are dictionary words, not credentials. A history
@@ -243,7 +243,7 @@ Before implementation changes, run a security and portability gate:
   `output/run-001/`; do not encode a person's name, employer, address, or private
   document title in tests, comments, fixtures, or README commands.
 - Add automated secret scanning in CI and a repository portability test that
-  rejects `/home/`, `/tmp/`, `.hermes`, private IPs, credential markers, and known
+  rejects user-home paths, temporary paths, private IPs, credential markers, and known
   user identifiers in tracked text.
 - Review Git LFS/binary objects and tags, not only the current checkout.
 

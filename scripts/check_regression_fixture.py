@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Validate the committed POJK regression contract and optional output bundle."""
+"""Validate the committed legal-document regression contract and optional output bundle."""
 import json
 import sys
 from pathlib import Path
 
-root = Path(sys.argv[1] if len(sys.argv) > 1 else "tests/fixtures/pojk75")
+root = Path(sys.argv[1] if len(sys.argv) > 1 else "tests/fixtures/legal-regression")
 manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
 if manifest.get("pages_total", 0) <= 0 or not manifest.get("protected_tokens"):
     raise SystemExit("invalid regression contract")

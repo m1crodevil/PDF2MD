@@ -18,4 +18,4 @@ jobs:
       - run: git diff --check
       - run: python3 scripts/check_repo_hygiene.py
       - run: python3 scripts/evaluate_quality.py --fixtures tests/fixtures/quality --min-numeric-recall 1.0
-      - run: python3 scripts/check_regression_fixture.py tests/fixtures/pojk75
+      - run: python3 scripts/check_regression_fixture.py tests/fixtures/legal-regression
