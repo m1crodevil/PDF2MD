@@ -17,5 +17,6 @@ jobs:
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: git diff --check
       - run: python3 scripts/check_repo_hygiene.py
+      - run: python3 scripts/test_report.py
       - run: python3 scripts/evaluate_quality.py --fixtures tests/fixtures/quality --min-numeric-recall 1.0
       - run: python3 scripts/check_regression_fixture.py tests/fixtures/document-regression
