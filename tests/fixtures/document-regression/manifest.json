@@ -1,5 +1,5 @@
 {
-  "schema": "pdf2md-legal-regression-v1",
+  "schema": "pdf2md-document-regression-v1",
   "pages_total": 11,
   "required_absent_tokens": ["- 2 -"],
   "protected_tokens": [
