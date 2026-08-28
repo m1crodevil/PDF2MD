@@ -11,11 +11,7 @@ sha2 = "0.10"
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"
 pdf_oxide = "0.3"
-pdfium-render = { version = "0.9.3", optional = true }
 
-[features]
-default = []
-pdfium = ["dep:pdfium-render"]
 
 [profile.release]
 opt-level = 3
