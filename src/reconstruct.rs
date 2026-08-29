@@ -28,28 +28,35 @@ struct CompletionMessage {
     content: Option<String>,
 }
 
+fn env_file_map(env_file: &str) -> std::collections::HashMap<String, String> {
+    let path = env_file.strip_prefix("~/").map_or_else(
+        || env_file.to_string(),
+        |rest| format!("{}/{}", env::var("HOME").unwrap_or_default(), rest),
+    );
+    let mut map = std::collections::HashMap::new();
+    if let Ok(content) = fs::read_to_string(&path) {
+        for line in content.lines() {
+            if let Some((k, v)) = line.split_once('=') {
+                let v = v.trim().trim_matches('"');
+                if !v.is_empty() {
+                    map.insert(k.trim().to_string(), v.to_string());
+                }
+            }
+        }
+    }
+    map
+}
+
 fn load_env_key(api_key_env: &str, env_file: &str) -> Result<String, String> {
     if let Ok(v) = env::var(api_key_env) {
         if !v.trim().is_empty() {
             return Ok(v);
         }
     }
-
-    let path = env_file.strip_prefix("~/").map_or_else(
-        || env_file.to_string(),
-        |rest| format!("{}/{}", env::var("HOME").unwrap_or_default(), rest),
-    );
-    let content = fs::read_to_string(&path).map_err(|e| format!("read {}: {}", path, e))?;
-    for line in content.lines() {
-        let line = line.trim();
-        if let Some(v) = line.strip_prefix(&format!("{}=", api_key_env)) {
-            let v = v.trim().trim_matches('"');
-            if !v.is_empty() {
-                return Ok(v.to_string());
-            }
-        }
-    }
-    Err(format!("{} not found in env or file", api_key_env))
+    env_file_map(env_file)
+        .get(api_key_env)
+        .cloned()
+        .ok_or_else(|| format!("{} not found in env or file", api_key_env))
 }
 
 fn load_env_value(name: &str, env_file: &str) -> Option<String> {
@@ -58,18 +65,7 @@ fn load_env_value(name: &str, env_file: &str) -> Option<String> {
             return Some(value);
         }
     }
-    let path = env_file.strip_prefix("~/").map_or_else(
-        || env_file.to_string(),
-        |rest| format!("{}/{}", env::var("HOME").unwrap_or_default(), rest),
-    );
-    fs::read_to_string(path)
-        .ok()?
-        .lines()
-        .find_map(|line| {
-            let (key, value) = line.split_once('=')?;
-            (key.trim() == name).then(|| value.trim().trim_matches('"').to_string())
-        })
-        .filter(|value| !value.trim().is_empty())
+    env_file_map(env_file).get(name).cloned()
 }
 
 fn build_prompt(page_num: usize, markdown_hint: &str) -> String {
