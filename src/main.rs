@@ -1,6 +1,7 @@
 mod cleanup;
 mod config;
 mod furniture;
+mod io;
 mod manifest;
 mod page;
 mod pdfoxide_backend;
@@ -37,10 +38,6 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
     if cli.start == 0 || cli.start > total || total > configured_total {
         return Err(format!("invalid page range: {}..{}", cli.start, total));
     }
-    if total < cli.start {
-        return Err(format!("invalid page range: {}..{}", cli.start, total));
-    }
-
     print_init(&cli.pdf, cli.start, total, &cli.outdir);
 
     fs::create_dir_all(&cli.outdir)

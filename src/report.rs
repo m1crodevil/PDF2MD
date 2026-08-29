@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::io::atomic_write;
 use crate::types::PageJson;
 
 // ─── Progress & summary ───
@@ -83,5 +84,5 @@ pub(crate) fn write_page_json(
 ) -> Result<(), String> {
     let json_str = serde_json::to_string_pretty(page_json)
         .map_err(|e| format!("JSON serialize failed: {}", e))?;
-    fs::write(json_path, &json_str).map_err(|e| format!("write failed: {}", e))
+    atomic_write(json_path, json_str).map_err(|e| format!("write failed: {}", e))
 }

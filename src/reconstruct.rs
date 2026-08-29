@@ -9,6 +9,7 @@ use std::time::Instant;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+use crate::io::atomic_write;
 use crate::manifest::{write as write_manifest, Manifest};
 use crate::types::PageJson;
 use crate::types::ReconstructArgs;
@@ -158,9 +159,9 @@ fn reconstruct_one(
     let cache_path = cache_dir.join(format!("{}.md", key));
     if source.ocr_boxes.is_empty() {
         let marker = format!("<!-- PAGE {} -->\n", page_num);
-        fs::write(&out_path, &marker)
+        atomic_write(&out_path, &marker)
             .map_err(|e| format!("write {}: {}", out_path.display(), e))?;
-        fs::write(&cache_path, &marker)
+        atomic_write(&cache_path, &marker)
             .map_err(|e| format!("write cache {}: {}", cache_path.display(), e))?;
         eprintln!("[md] p{:03} blank OCR page skipped", page_num);
         return Ok((page_num, marker.len()));
@@ -170,7 +171,7 @@ fn reconstruct_one(
             .and_then(|_| validate_retention(&input, &cached, page_num))
             .is_ok()
         {
-            fs::write(&out_path, &cached)
+            atomic_write(&out_path, &cached)
                 .map_err(|e| format!("write {}: {}", out_path.display(), e))?;
             eprintln!("[md] p{:03} cache-hit {} chars", page_num, cached.len());
             return Ok((page_num, cached.len()));
@@ -180,9 +181,9 @@ fn reconstruct_one(
     if let Ok(md) = crate::pdfoxide_backend::extract_markdown(&source_pdf, page_num - 1) {
         if !md.trim().is_empty() {
             let marker = format!("<!-- PAGE {} -->\n{}", page_num, md);
-            fs::write(&out_path, &marker)
+            atomic_write(&out_path, &marker)
                 .map_err(|e| format!("write {}: {}", out_path.display(), e))?;
-            fs::write(&cache_path, &marker)
+            atomic_write(&cache_path, &marker)
                 .map_err(|e| format!("write cache {}: {}", cache_path.display(), e))?;
             eprintln!("[md] p{:03} native-markdown {} chars", page_num, md.len());
             return Ok((page_num, marker.len()));
@@ -256,13 +257,13 @@ fn reconstruct_one(
     validate_markdown(md, page_num)?;
     if let Err(retention_error) = validate_retention(&input, md, page_num) {
         let fallback = deterministic_fallback(&source, page_num);
-        fs::write(&out_path, &fallback)
+        atomic_write(&out_path, &fallback)
             .map_err(|e| format!("write fallback {}: {}", out_path.display(), e))?;
         eprintln!("[md][FALLBACK] p{:03}: {}", page_num, retention_error);
         return Err(retention_error);
     }
-    fs::write(&out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
-    fs::write(&cache_path, md)
+    atomic_write(&out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
+    atomic_write(&cache_path, md)
         .map_err(|e| format!("write cache {}: {}", cache_path.display(), e))?;
     eprintln!(
         "[md] p{:03} {}s {} chars",
@@ -706,7 +707,7 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
     }
     if !merged.trim().is_empty() {
         let finalized = finalize_document(&merged)?;
-        fs::write(bundle_root.join("document.md"), finalized)
+        atomic_write(bundle_root.join("document.md"), finalized)
             .map_err(|e| format!("write document.md: {}", e))?;
     }
     let manifest = Manifest {

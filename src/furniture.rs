@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
+use crate::io::atomic_write;
 use crate::types::{FurnitureAnnotation, OcrBox, PageJson};
 
 /// Annotate repeated edge text without mutating the raw OCR directory.
@@ -68,7 +69,7 @@ pub(crate) fn annotate_directory(input: &str) -> Result<(), String> {
         let path = output.join(format!("page_{:03}.json", page.page));
         let json = serde_json::to_string_pretty(&page)
             .map_err(|e| format!("serialize page {}: {}", page.page, e))?;
-        fs::write(path, json).map_err(|e| e.to_string())?;
+        atomic_write(path, json).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

@@ -1,5 +1,5 @@
+use crate::io::atomic_write;
 use serde::Serialize;
-use std::fs;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct Manifest {
@@ -18,5 +18,5 @@ pub(crate) struct Manifest {
 
 pub(crate) fn write(path: &str, m: &Manifest) -> Result<(), String> {
     let text = serde_json::to_string_pretty(m).map_err(|e| format!("serialize manifest: {}", e))?;
-    fs::write(path, text).map_err(|e| format!("write manifest {}: {}", path, e))
+    atomic_write(path, text).map_err(|e| format!("write manifest {}: {}", path, e))
 }
