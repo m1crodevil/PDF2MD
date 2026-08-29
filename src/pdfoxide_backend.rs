@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::time::Instant;
 
+use pdf_oxide::converters::ConversionOptions;
 use pdf_oxide::PdfDocument;
 
 use crate::types::{LayoutRegion, OcrBox, PageJson, PageQuality, Timings};
@@ -30,6 +31,23 @@ pub(crate) fn probe_page(path: &Path, page: usize) -> Result<PageProbe, String> 
         native_text_chars: text.chars().count(),
         image_only: text.trim().is_empty(),
     })
+}
+
+/// Native markdown conversion — no LLM needed for text-rich PDFs.
+pub(crate) fn extract_markdown(path: &Path, page: usize) -> Result<String, String> {
+    let path = path
+        .to_str()
+        .ok_or_else(|| "PDF path is not valid UTF-8".to_string())?;
+    let document = PdfDocument::open(path).map_err(|e| format!("PDFOxide open failed: {e}"))?;
+    let opts = ConversionOptions {
+        detect_headings: true,
+        extract_tables: true,
+        strip_running_headers_footers: true,
+        ..Default::default()
+    };
+    document
+        .to_markdown(page, &opts)
+        .map_err(|e| format!("PDFOxide markdown page {page}: {e}"))
 }
 
 pub(crate) fn extract_page(path: &Path, page: usize) -> Result<PageJson, String> {

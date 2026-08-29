@@ -126,14 +126,20 @@ fn hex_of(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-fn reconstruct_one(
-    json_path: PathBuf,
-    out_path: PathBuf,
-    cache_dir: PathBuf,
+/// LLM connection params grouped to avoid clippy::too_many_arguments.
+struct LlmParams {
     api_key: String,
     model: String,
     base_url: String,
     reasoning_effort: String,
+}
+
+fn reconstruct_one(
+    json_path: PathBuf,
+    out_path: PathBuf,
+    cache_dir: PathBuf,
+    source_pdf: PathBuf,
+    llm: LlmParams,
 ) -> Result<(usize, usize), String> {
     let t = Instant::now();
     let input = fs::read_to_string(&json_path)
@@ -148,7 +154,7 @@ fn reconstruct_one(
         .map_err(|e| format!("parse page JSON {}: {}", json_path.display(), e))?;
 
     let prompt = build_prompt(page_num, &input);
-    let key = cache_key(&model, &prompt, &input);
+    let key = cache_key(&llm.model, &prompt, &input);
     let cache_path = cache_dir.join(format!("{}.md", key));
     if source.ocr_boxes.is_empty() {
         let marker = format!("<!-- PAGE {} -->\n", page_num);
@@ -170,12 +176,24 @@ fn reconstruct_one(
             return Ok((page_num, cached.len()));
         }
     }
+    // Native markdown: pdf_oxide converts text-rich pages directly, no LLM.
+    if let Ok(md) = crate::pdfoxide_backend::extract_markdown(&source_pdf, page_num - 1) {
+        if !md.trim().is_empty() {
+            let marker = format!("<!-- PAGE {} -->\n{}", page_num, md);
+            fs::write(&out_path, &marker)
+                .map_err(|e| format!("write {}: {}", out_path.display(), e))?;
+            fs::write(&cache_path, &marker)
+                .map_err(|e| format!("write cache {}: {}", cache_path.display(), e))?;
+            eprintln!("[md] p{:03} native-markdown {} chars", page_num, md.len());
+            return Ok((page_num, marker.len()));
+        }
+    }
     let payload = serde_json::json!({
-        "model": model,
+        "model": llm.model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 4000,
         "temperature": 0,
-        "reasoning_effort": reasoning_effort,
+        "reasoning_effort": llm.reasoning_effort,
     });
 
     let mut out = None;
@@ -187,9 +205,9 @@ fn reconstruct_one(
                 "20",
                 "--max-time",
                 "300",
-                &format!("{}/chat/completions", base_url.trim_end_matches('/')),
+                &format!("{}/chat/completions", llm.base_url.trim_end_matches('/')),
                 "-H",
-                &format!("Authorization: Bearer {}", api_key),
+                &format!("Authorization: Bearer {}", llm.api_key),
                 "-H",
                 "Content-Type: application/json",
                 "-d",
@@ -641,21 +659,16 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
             }
             active += 1;
             let tx = tx.clone();
-            let api_key = api_key.clone();
-            let model = args.model.clone();
-            let base_url = args.base_url.clone();
-            let reasoning_effort = args.reasoning_effort.clone();
             let cache_dir = cache_dir.clone();
+            let source_pdf = PathBuf::from(&args.source_pdf);
+            let llm = LlmParams {
+                api_key: api_key.clone(),
+                model: args.model.clone(),
+                base_url: args.base_url.clone(),
+                reasoning_effort: args.reasoning_effort.clone(),
+            };
             thread::spawn(move || {
-                let res = reconstruct_one(
-                    json_path,
-                    out_path,
-                    cache_dir,
-                    api_key,
-                    model,
-                    base_url,
-                    reasoning_effort,
-                );
+                let res = reconstruct_one(json_path, out_path, cache_dir, source_pdf, llm);
                 let _ = tx.send(res);
             });
         }
