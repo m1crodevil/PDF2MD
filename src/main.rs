@@ -17,11 +17,11 @@ use cleanup::RegexFixes;
 use config::load as load_config;
 
 use furniture::annotate_directory;
-use page::process_page;
+use page::{process_page, BatchHelper};
 use pdfoxide_backend::{extract_page, probe_page};
 use reconstruct::run as run_reconstruct;
 use report::*;
-use types::{BatchHelper, Cli, Commands, OcrArgs};
+use types::{Cli, Commands, OcrArgs};
 
 fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
     preflight_ocr_dependencies(&cli.helper)?;

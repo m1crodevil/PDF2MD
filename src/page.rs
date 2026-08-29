@@ -1,16 +1,23 @@
 use std::fs;
 use std::io::BufRead;
+use std::io::BufReader;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, ChildStdin, ChildStdout, Command};
 use std::time::Instant;
 
 use serde_json::Value;
 
 use crate::cleanup::{round1, RegexFixes};
-use crate::types::{
-    BatchHelper, LayoutRegion, OcrBox, PageJson, PageQuality, RegionTextBox, Timings,
-};
+use crate::types::{LayoutRegion, OcrBox, PageJson, PageQuality, RegionTextBox, Timings};
+
+// ─── Batch helper: persistent Python process ───
+
+pub(crate) struct BatchHelper {
+    child: Child,
+    stdin: ChildStdin,
+    stdout: BufReader<ChildStdout>,
+}
 
 // ─── Page rendering ───
 

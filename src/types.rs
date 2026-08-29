@@ -1,7 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::io::BufReader;
-use std::process::ChildStdout;
-use std::process::{Child, ChildStdin};
 
 use clap::{Parser, Subcommand};
 
@@ -183,10 +180,4 @@ pub(crate) struct Timings {
     pub total: f64,
 }
 
-// ─── Batch helper: persistent Python process ───
-
-pub(crate) struct BatchHelper {
-    pub child: Child,
-    pub stdin: ChildStdin,
-    pub stdout: BufReader<ChildStdout>,
-}
+// ─── Timings ───
