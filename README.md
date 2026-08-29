@@ -1,88 +1,83 @@
 # PDF2MD
 
-PDF2MD is a small Rust pipeline that turns PDFs into page-aware JSON and Markdown.
-It combines PDF rendering, OCR, layout detection, and optional LLM-assisted
-reconstruction.
+PDF2MD is a Rust pipeline that converts PDF documents into page-aware JSON and Markdown. It combines native text extraction, OCR, layout analysis, optional LLM reconstruction, validation, and resumable output.
 
-> **Important:** PDF2MD extracts text and layout. It does not yet understand the
-> meaning of charts, diagrams, graphs, or image-only content. Review those pages
-> manually or send them through a VLM in a later step.
-
-## How it works
+## Processing model
 
 ```text
-PDF → probe → native markdown (pdf_oxide) OR OCR + LLM reconstruct (scanned pages)
+PDF → page probe → native Markdown OR OCR JSON → optional LLM reconstruction → validation
 ```
 
-- `ocr` probes each page: text-rich pages use PDFOxide's built-in markdown
-  converter (no LLM); image-only or sparse-text pages use PDF render +
-  PP-DocLayout + `faster_paddle` medium route.
-- `reconstruct` converts page JSON to Markdown. For native-text pages, uses
-  pdf_oxide's `to_markdown()` directly (free, deterministic). For scanned pages,
-  uses the LLM-assisted pipeline.
-- The final output includes per-page Markdown, `document.md`, and a manifest.
-- Quality checks catch missing page markers, lost numeric tokens, malformed tables,
-  and invalid OCR results.
+- **Text-rich pages:** use `pdf_oxide` native Markdown conversion. This route is deterministic and does not require an API key.
+- **Scanned or sparse-text pages:** use PDF rendering, PP-DocLayout, and `faster_paddle` OCR. Reconstruction uses the configured LLM when required.
+- **Mixed documents:** route each page independently; native pages bypass the LLM.
+- **Quality validation:** checks page markers, page coverage, protected tokens, Markdown structure, and retention. Failed validation remains explicit in the manifest.
 
-The pipeline keeps raw OCR text, cleaned text, layout regions, confidence scores,
-reading order, and review flags. These signals help route difficult pages; they
-are not a guarantee that the document was understood correctly.
+Image-only pages, figures, charts, diagrams, complex tables, and unusual layouts may require manual review or an opt-in VLM workflow.
 
-## What it handles well
+## Requirements
 
-- Scanned PDFs with ordinary text and common page layouts.
-- Basic tables, figures, captions, and multi-region pages.
-- Resumable reconstruction with bounded concurrency.
-- Retry handling for temporary API failures.
-- Page-level validation and a run manifest.
+Run the dependency check before processing a new environment:
 
-## Current limits
+```bash
+./scripts/check-deps.sh
+```
 
-PDF2MD is not a replacement for visual document understanding. It may struggle
-with charts, plots, diagrams, image-only information, complex figure/legend
-relationships, cross-page tables, and unusual multi-column layouts. Those pages
-are flagged for review instead of being presented as reliably understood.
+The check covers Rust tooling, `curl`, Poppler utilities, Python, PaddleOCR, and `faster_paddle`.
 
 ## Quick start
 
 ```bash
 cargo build --release
-./scripts/check-deps.sh
-./target/release/pdf2md ocr --pdf ./input.pdf --outdir ./json
-./target/release/pdf2md reconstruct --concurrency 2
+
+./target/release/pdf2md ocr \
+  --pdf ./input.pdf \
+  --outdir ./json
+
+./target/release/pdf2md reconstruct \
+  --json-dir ./json \
+  --source-pdf ./input.pdf \
+  --outdir ./output
 ```
 
-The dependency check covers `cargo`, `curl`, `pdfinfo`, `pdftoppm`, `python3`,
-`paddleocr`, and `faster_paddle`. Page count is discovered automatically; use
-`--start`, `--end`, and optionally `--total` for bounded ranges.
+`--source-pdf` is also used as the original-document path when `--original-pdf` is omitted. Provide `--original-pdf` only when the bundled source should be different.
+
+Use `--start`, `--end`, and optionally `--total` to process a bounded page range.
 
 ## Configuration
 
-The portable template is `config/pdf2md.toml`; machine-specific overrides belong
-in ignored `config/pdf2md.local.toml`. Keep API keys in `.env` or the environment,
-never in Git. `reconstruct` fails fast when endpoint or model configuration is missing.
+The tracked template is `config/pdf2md.toml`. Put machine-specific overrides in the ignored `config/pdf2md.local.toml`.
+
+Keep credentials in `.env` or the process environment; never commit them. The supported variables are:
+
+```text
+PDF2MD_API_KEY
+PDF2MD_BASE_URL
+PDF2MD_MODEL=cx/gpt-5.6-luna
+PDF2MD_REASONING_EFFORT=none
+```
+
+Configuration precedence is:
+
+```text
+CLI options > local/config values > environment or .env
+```
+
+The endpoint must be configured explicitly for LLM reconstruction. Native-only documents can run without `PDF2MD_API_KEY`; OCR/LLM pages require a valid key.
 
 ## Output and resume behavior
 
-OCR writes page JSON with layout regions, OCR boxes, confidence, cleaned/raw text,
-quality data, and risk flags. Reconstruction writes per-page Markdown,
-`document.md`, `manifest.json`, and `.cache/reconstruct/`. Existing Markdown and
-cache entries are reused only after Markdown and retention validation.
+OCR writes page JSON containing text, layout regions, OCR boxes, confidence, quality data, and risk flags. Reconstruction writes:
 
-## Universal content-quality contract
+- per-page Markdown;
+- `document.md`;
+- `manifest.json`;
+- `.cache/reconstruct/`;
+- a copy of the source PDF.
 
-`faster_paddle` **medium** is the default OCR model for rendered pages. OCR acquisition
-and optional reconstruction are separate stages. Numbers, dates, units, identifiers,
-formulas, and other configured protected tokens found in source evidence must survive
-reconstruction. Classified repeated page furniture may be excluded; uncertain content
-is preserved.
+Existing outputs are reused only after Markdown and retention validation. Writes use an atomic temporary-file-and-rename sequence to avoid partial artifacts.
 
-If protected content is lost, reconstruction writes a deterministic source-text
-fallback and marks the page as `quality_failed`/review candidate rather than silently
-accepting incomplete Markdown. Cache hits are validated again. Confidence alone is
-not a production gate, and tables, figures, forms, and visual regions may require review.
-
-Run deterministic checks:
+## Quality and development checks
 
 ```bash
 cargo fmt --all -- --check
@@ -93,31 +88,11 @@ python3 scripts/evaluate_quality.py --fixtures tests/fixtures/quality
 python3 scripts/check_regression_fixture.py tests/fixtures/document-regression
 ```
 
-The document fixture records a regression contract while source PDFs and live OCR/LLM
-outputs remain outside Git. Live benchmarks are separate because model/API results
-vary; production validation needs a ground-truth corpus.
+Live OCR/LLM runs are separate from deterministic CI because model output varies by provider and input. A release should include at least one representative document smoke test.
 
-## Development
+## Current limitations
 
-```bash
-cargo fmt -- --check
-cargo check
-cargo test
-cargo build --release
-```
-
-The deterministic evaluator checks CER/WER, numeric retention, Markdown validity,
-page coverage, and tables. VLM processing remains opt-in for pages whose visual risk
-signals justify the cost.
-
-## Pipeline guarantees and release gate
-
-The OCR command is page-aware and resumable: cached page JSON is skipped, while
-reconstruction uses bounded concurrency and revalidates cached Markdown before reuse.
-Each run writes page results and a manifest; failures remain explicit rather than
-becoming blank pages. The CI gate runs formatting, tests, Clippy, repository hygiene,
-quality fixtures, and the document regression contract. A release still requires a live
-document smoke test because OCR and LLM output can vary by model and input.
+PDF2MD is not a replacement for visual document understanding. Review pages containing charts, diagrams, image-only information, complex figure/legend relationships, forms, cross-page tables, or unusual multi-column layouts.
 
 ## Upstream projects
 
