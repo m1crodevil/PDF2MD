@@ -46,19 +46,17 @@ pub(crate) fn render_page(
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    // pdftoppm outputs page-NNN.png; rename to our format
-    let generated = PathBuf::from(format!("{}/page-{:03}.png", tmp_dir, page_num));
-    let alt = PathBuf::from(format!("{}/page-{}.png", tmp_dir, page_num));
-    let padded = PathBuf::from(format!("{}/page-{:02}.png", tmp_dir, page_num));
-    let src = if generated.exists() {
-        generated
-    } else if alt.exists() {
-        alt
-    } else if padded.exists() {
-        padded
-    } else {
-        return Err(format!("pdftoppm output not found for page {}", page_num));
-    };
+    // pdftoppm pads output names based on total page count; glob instead of guessing.
+    let src = fs::read_dir(tmp_dir)
+        .map_err(|e| format!("read tmp dir: {}", e))?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("page-") && n.ends_with(".png"))
+        })
+        .ok_or_else(|| format!("pdftoppm output not found for page {}", page_num))?;
     if src != png {
         fs::rename(&src, &png).ok();
     }
