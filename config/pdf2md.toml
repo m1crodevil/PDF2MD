@@ -6,7 +6,8 @@ source_pdf = "./input.pdf"
 outdir = "./output"
 api_key_env = "PDF2MD_API_KEY"
 env_file = "./.env"
-base_url = "https://api.example.com/v1"
+# Set in config/pdf2md.local.toml, PDF2MD_BASE_URL, or --base-url.
+base_url = ""
 model = "cx/gpt-5.6-luna"
 concurrency = 2
 reasoning_effort = "none"

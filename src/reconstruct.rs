@@ -177,16 +177,18 @@ fn reconstruct_one(
             return Ok((page_num, cached.len()));
         }
     }
-    // Native markdown: pdf_oxide converts text-rich pages directly, no LLM.
-    if let Ok(md) = crate::pdfoxide_backend::extract_markdown(&source_pdf, page_num - 1) {
-        if !md.trim().is_empty() {
-            let marker = format!("<!-- PAGE {} -->\n{}", page_num, md);
-            atomic_write(&out_path, &marker)
-                .map_err(|e| format!("write {}: {}", out_path.display(), e))?;
-            atomic_write(&cache_path, &marker)
-                .map_err(|e| format!("write cache {}: {}", cache_path.display(), e))?;
-            eprintln!("[md] p{:03} native-markdown {} chars", page_num, md.len());
-            return Ok((page_num, marker.len()));
+    // Native markdown is valid only for pages produced by pdf_oxide.
+    if source.ocr_model.as_deref() == Some("pdf_oxide") {
+        if let Ok(md) = crate::pdfoxide_backend::extract_markdown(&source_pdf, page_num - 1) {
+            if !md.trim().is_empty() && !is_ocr_required_placeholder(&md) {
+                let marker = format!("<!-- PAGE {} -->\n{}", page_num, md);
+                atomic_write(&out_path, &marker)
+                    .map_err(|e| format!("write {}: {}", out_path.display(), e))?;
+                atomic_write(&cache_path, &marker)
+                    .map_err(|e| format!("write cache {}: {}", cache_path.display(), e))?;
+                eprintln!("[md] p{:03} native-markdown {} chars", page_num, md.len());
+                return Ok((page_num, marker.len()));
+            }
         }
     }
     let payload = serde_json::json!({
@@ -514,6 +516,10 @@ mod validation_tests {
     }
 }
 
+fn is_ocr_required_placeholder(markdown: &str) -> bool {
+    markdown.contains("[OCR REQUIRED")
+}
+
 fn valid_existing_output(path: &Path, page_num: usize) -> bool {
     fs::read_to_string(path)
         .ok()
@@ -537,15 +543,13 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         }
     }
     if args.base_url.trim().is_empty() {
-        return Err(
-            "missing reconstruct base_url: set it in config/pdf2md.toml or pass --base-url"
-                .to_string(),
-        );
+        if let Some(value) = load_env_value("PDF2MD_BASE_URL", &args.env_file) {
+            args.base_url = value;
+        }
     }
-    if args.model.trim().is_empty() {
-        return Err("missing reconstruct model: set PDF2MD_MODEL or pass --model".to_string());
+    if args.original_pdf == "./input.pdf" {
+        args.original_pdf = args.source_pdf.clone();
     }
-    let api_key = load_env_key(&args.api_key_env, &args.env_file)?;
     let pdf_name = pdf_stem(&args.source_pdf);
     let bundle_root = PathBuf::from(&args.outdir).join(&pdf_name);
     let md_root = bundle_root.join("md");
@@ -614,6 +618,31 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         }
     }
 
+    let needs_llm = files.iter().any(|path| {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<PageJson>(&text).ok())
+            .is_some_and(|page| {
+                !page.blank
+                    && !page.ocr_boxes.is_empty()
+                    && page.ocr_model.as_deref() != Some("pdf_oxide")
+            })
+    });
+    if needs_llm {
+        if args.base_url.trim().is_empty() {
+            return Err(
+                "missing reconstruct base_url: set PDF2MD_BASE_URL, config, or --base-url"
+                    .to_string(),
+            );
+        }
+        if args.model.trim().is_empty() {
+            return Err("missing reconstruct model: set PDF2MD_MODEL or pass --model".to_string());
+        }
+    }
+    let api_key = needs_llm
+        .then(|| load_env_key(&args.api_key_env, &args.env_file))
+        .transpose()?;
+
     while next < files.len() || active > 0 {
         while active < max_concurrency && next < files.len() {
             let json_path = files[next].clone();
@@ -663,7 +692,7 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
             let cache_dir = cache_dir.clone();
             let source_pdf = PathBuf::from(&args.source_pdf);
             let llm = LlmParams {
-                api_key: api_key.clone(),
+                api_key: api_key.clone().unwrap_or_default(),
                 model: args.model.clone(),
                 base_url: args.base_url.clone(),
                 reasoning_effort: args.reasoning_effort.clone(),
