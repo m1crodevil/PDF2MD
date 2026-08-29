@@ -3,8 +3,20 @@ use std::time::Instant;
 
 use pdf_oxide::PdfDocument;
 
-use crate::ir::PageProbe;
 use crate::types::{LayoutRegion, OcrBox, PageJson, PageQuality, Timings};
+
+#[derive(Debug, Clone)]
+pub(crate) struct PageProbe {
+    pub native_text_chars: usize,
+    pub image_only: bool,
+}
+
+impl PageProbe {
+    /// True when the page has enough native text to skip OCR.
+    pub(crate) fn has_native_text(&self, min_chars: usize) -> bool {
+        !self.image_only && self.native_text_chars >= min_chars
+    }
+}
 
 pub(crate) fn probe_page(path: &Path, page: usize) -> Result<PageProbe, String> {
     let path = path
@@ -15,9 +27,7 @@ pub(crate) fn probe_page(path: &Path, page: usize) -> Result<PageProbe, String> 
         .extract_text(page)
         .map_err(|e| format!("PDFOxide page {page} probe failed: {e}"))?;
     Ok(PageProbe {
-        page: page + 1,
         native_text_chars: text.chars().count(),
-        page_area: 0.0,
         image_only: text.trim().is_empty(),
     })
 }

@@ -1,7 +1,6 @@
 mod cleanup;
 mod config;
 mod furniture;
-mod ir;
 mod manifest;
 mod page;
 mod pdfoxide_backend;
@@ -71,12 +70,12 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
 
         if let Ok(probe) = probe_page(std::path::Path::new(&cli.pdf), page_num - 1) {
             eprintln!(
-                "page {} native text: {} chars; route: {:?}",
+                "page {} native text: {} chars; native_route: {}",
                 page_num,
                 probe.native_text_chars,
-                probe.backend(20)
+                probe.has_native_text(20)
             );
-            if probe.backend(20) == crate::ir::Backend::PdfOxide {
+            if probe.has_native_text(20) {
                 match extract_page(std::path::Path::new(&cli.pdf), page_num - 1)
                     .and_then(|page| write_page_json(&json_path, &page))
                 {
