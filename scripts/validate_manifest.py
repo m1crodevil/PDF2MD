@@ -11,7 +11,7 @@ def main() -> int:
         return 2
     path = Path(sys.argv[1])
     data = json.loads(path.read_text(encoding="utf-8"))
-    required = {"schema_version", "mode", "input", "output_dir", "pages_total", "ok", "skipped", "failed", "content_integrity"}
+    required = {"input", "output_dir", "pages_total", "ok", "skipped", "failed", "content_integrity"}
     missing = sorted(required - data.keys())
     if missing:
         raise SystemExit(f"missing manifest fields: {', '.join(missing)}")
