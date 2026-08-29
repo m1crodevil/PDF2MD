@@ -11,13 +11,15 @@ reconstruction.
 ## How it works
 
 ```text
-PDF → probe → PDFOxide or OCR/PP-DocLayout → page JSON → Markdown reconstruction
+PDF → probe → native markdown (pdf_oxide) OR OCR + LLM reconstruct (scanned pages)
 ```
 
-- `ocr` probes each page first: text-rich pages use PDFOxide; image-only or
-  text-insufficient pages use the existing PDF render + PP-DocLayout +
-  `faster_paddle` medium route.
-- `reconstruct` validates those JSON files and turns them into Markdown.
+- `ocr` probes each page: text-rich pages use PDFOxide's built-in markdown
+  converter (no LLM); image-only or sparse-text pages use PDF render +
+  PP-DocLayout + `faster_paddle` medium route.
+- `reconstruct` converts page JSON to Markdown. For native-text pages, uses
+  pdf_oxide's `to_markdown()` directly (free, deterministic). For scanned pages,
+  uses the LLM-assisted pipeline.
 - The final output includes per-page Markdown, `document.md`, and a manifest.
 - Quality checks catch missing page markers, lost numeric tokens, malformed tables,
   and invalid OCR results.
