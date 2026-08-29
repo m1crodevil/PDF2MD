@@ -12,3 +12,4 @@ config/*.local.toml
 *.db
 *.log
 .DS_Store
+docs/refactor-plan-ponytail-audit.md
