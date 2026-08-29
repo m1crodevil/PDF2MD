@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
 
+use crate::types::PageJson;
+
 // ─── Progress & summary ───
 
 pub(crate) fn print_init(pdf: &str, start: usize, total: usize, outdir: &str) {
@@ -16,29 +18,19 @@ pub(crate) fn print_skip(page_num: usize, total: usize) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn print_done(
-    page_num: usize,
-    total: usize,
-    layout_count: usize,
-    ocr_count: usize,
-    page_time: f64,
-    elapsed: f64,
-    done: usize,
-    outdir: &str,
-) {
+pub(crate) fn print_done(page: &PageJson, total: usize, elapsed: f64, done: usize, outdir: &str) {
     let rate = done as f64 / elapsed.max(0.1);
-    let eta = (total - page_num) as f64 / rate.max(0.01);
+    let eta = (total - page.page) as f64 / rate.max(0.01);
     eprintln!(
         "[done] page {:03}/{} regions={} boxes={} {:.1}s | ETA {:.0}min",
-        page_num,
+        page.page,
         total,
-        layout_count,
-        ocr_count,
-        page_time,
+        page.layout_regions.len(),
+        page.ocr_boxes.len(),
+        page.timings.total,
         eta / 60.0
     );
-    if page_num.is_multiple_of(10) {
+    if page.page.is_multiple_of(10) {
         let done_count = fs::read_dir(outdir)
             .map(|d| {
                 d.filter(|e| {

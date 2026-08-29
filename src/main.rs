@@ -90,16 +90,7 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
                 Ok(_) => {
                     let elapsed = start_time.elapsed().as_secs_f64();
                     let done = page_num - cli.start - skipped + 1;
-                    print_done(
-                        page_num,
-                        total,
-                        page_json.layout_regions.len(),
-                        page_json.ocr_boxes.len(),
-                        page_json.timings.total,
-                        elapsed,
-                        done,
-                        &cli.outdir,
-                    );
+                    print_done(&page_json, total, elapsed, done, &cli.outdir);
                 }
                 Err(e) => {
                     errors += 1;
