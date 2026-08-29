@@ -221,10 +221,10 @@ fn reconstruct_one(
             .output()
             .map_err(|e| format!("curl failed: {}", e))?;
         let stdout = String::from_utf8_lossy(&result.stdout);
-        let status = stdout
+        let (body, status) = stdout
             .rsplit_once('\n')
-            .and_then(|(_, code)| code.parse::<u16>().ok())
-            .unwrap_or(0);
+            .and_then(|(body, code)| code.parse::<u16>().ok().map(|status| (body, status)))
+            .unwrap_or((stdout.as_ref(), 0));
         let retryable = status == 0 || status == 408 || status == 429 || status >= 500;
         if status == 402 {
             return Err("HTTP 402: payment required; stopping retries".to_string());
@@ -236,11 +236,12 @@ fn reconstruct_one(
         if retryable && attempt < 3 {
             thread::sleep(std::time::Duration::from_secs(attempt));
         } else {
-            return Err(format!(
-                "HTTP {}: {}",
-                status,
-                String::from_utf8_lossy(&result.stderr)
-            ));
+            let detail = if body.trim().is_empty() {
+                String::from_utf8_lossy(&result.stderr).trim().to_string()
+            } else {
+                body.trim().to_string()
+            };
+            return Err(format!("HTTP {}: {}", status, truncate_error(&detail)));
         }
     }
     let out = out.ok_or_else(|| "curl retry loop ended without response".to_string())?;
@@ -255,17 +256,18 @@ fn reconstruct_one(
         .choices
         .first()
         .and_then(|choice| choice.message.content.as_deref())
+        .map(|content| normalize_page_marker(content, page_num))
         .ok_or_else(|| "missing choices[0].message.content".to_string())?;
-    validate_markdown(md, page_num)?;
-    if let Err(retention_error) = validate_retention(&input, md, page_num) {
+    validate_markdown(&md, page_num)?;
+    if let Err(retention_error) = validate_retention(&input, &md, page_num) {
         let fallback = deterministic_fallback(&source, page_num);
         atomic_write(&out_path, &fallback)
             .map_err(|e| format!("write fallback {}: {}", out_path.display(), e))?;
         eprintln!("[md][FALLBACK] p{:03}: {}", page_num, retention_error);
         return Err(retention_error);
     }
-    atomic_write(&out_path, md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
-    atomic_write(&cache_path, md)
+    atomic_write(&out_path, &md).map_err(|e| format!("write {}: {}", out_path.display(), e))?;
+    atomic_write(&cache_path, &md)
         .map_err(|e| format!("write cache {}: {}", cache_path.display(), e))?;
     eprintln!(
         "[md] p{:03} {}s {} chars",
@@ -473,7 +475,10 @@ fn choose_input_dir(json_dir: &str) -> PathBuf {
 
 #[cfg(test)]
 mod validation_tests {
-    use super::{choose_input_dir, finalize_document, is_protected_key, normalized_contains};
+    use super::{
+        choose_input_dir, finalize_document, is_ocr_required_placeholder, is_protected_key,
+        normalize_page_marker, normalized_contains, truncate_error,
+    };
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -491,6 +496,26 @@ mod validation_tests {
         assert!(!is_protected_key("14.menganalisis"));
         assert!(!is_protected_key("1.10etika"));
     }
+    #[test]
+    fn normalizes_duplicate_page_markers() {
+        let result = normalize_page_marker("<!-- PAGE 1 -->\nTitle\n<!-- PAGE 1 -->", 1);
+        assert_eq!(result, "<!-- PAGE 1 -->\nTitle");
+    }
+
+    #[test]
+    fn rejects_native_ocr_placeholder() {
+        assert!(is_ocr_required_placeholder("[OCR REQUIRED — page 1]"));
+        assert!(!is_ocr_required_placeholder("# Actual page content"));
+    }
+
+    #[test]
+    fn truncates_large_api_errors() {
+        let detail = "x".repeat(1001);
+        let result = truncate_error(&detail);
+        assert_eq!(result.chars().count(), 1001);
+        assert!(result.ends_with('…'));
+    }
+
     #[test]
     fn finalization_removes_all_page_markers() {
         let result = finalize_document("<!-- PAGE 1 -->\nTitle\n<!-- PAGE 2 -->").unwrap();
@@ -516,8 +541,28 @@ mod validation_tests {
     }
 }
 
+fn normalize_page_marker(markdown: &str, page_num: usize) -> String {
+    let marker = format!("<!-- PAGE {} -->", page_num);
+    let content = markdown
+        .lines()
+        .filter(|line| line.trim() != marker)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    format!("{}\n{}", marker, content)
+}
+
 fn is_ocr_required_placeholder(markdown: &str) -> bool {
     markdown.contains("[OCR REQUIRED")
+}
+
+fn truncate_error(detail: &str) -> String {
+    const LIMIT: usize = 1000;
+    detail.char_indices().nth(LIMIT).map_or_else(
+        || detail.to_string(),
+        |(index, _)| format!("{}…", &detail[..index]),
+    )
 }
 
 fn valid_existing_output(path: &Path, page_num: usize) -> bool {
