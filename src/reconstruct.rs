@@ -133,6 +133,52 @@ struct LlmParams {
     model: String,
     base_url: String,
     reasoning_effort: String,
+    visual: bool,
+}
+
+fn visual_analysis(
+    source_pdf: &Path,
+    json_path: &Path,
+    page_num: usize,
+    out_path: &Path,
+    llm: &LlmParams,
+) -> Result<String, String> {
+    if !llm.visual {
+        return Ok(String::new());
+    }
+    let artifact = out_path.with_extension("visual.json");
+    let helper = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/visual_vlm_helper.py");
+    let output = Command::new("python3")
+        .env("PDF2MD_API_KEY", &llm.api_key)
+        .args([
+            helper.to_string_lossy().as_ref(),
+            "--pdf",
+            source_pdf.to_string_lossy().as_ref(),
+            "--page",
+            &page_num.to_string(),
+            "--json",
+            json_path.to_string_lossy().as_ref(),
+            "--output",
+            artifact.to_string_lossy().as_ref(),
+            "--base-url",
+            &llm.base_url,
+            "--model",
+            &llm.model,
+        ])
+        .output()
+        .map_err(|e| format!("visual helper failed to start: {}", e))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "visual helper failed: {}",
+            truncate_error(detail.trim())
+        ));
+    }
+    let markdown = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if markdown.is_empty() {
+        return Err("visual helper returned empty Markdown".to_string());
+    }
+    Ok(markdown)
 }
 
 fn reconstruct_one(
@@ -188,16 +234,45 @@ fn reconstruct_one(
             return Ok((page_num, cached.len()));
         }
     }
+    let visual_md = if is_visual_candidate(&source) {
+        match visual_analysis(&source_pdf, &json_path, page_num, &out_path, &llm) {
+            Ok(markdown) => markdown,
+            Err(error) => {
+                let artifact = out_path.with_extension("visual.json");
+                let record = serde_json::json!({
+                    "page": page_num,
+                    "status": "error",
+                    "method": "vision_llm",
+                    "model": llm.model,
+                    "error": {"stage": "visual_analysis", "message": error, "retryable": true}
+                });
+                let _ = atomic_write(
+                    &artifact,
+                    serde_json::to_string_pretty(&record).unwrap_or_default(),
+                );
+                eprintln!("[vlm][WARN] p{:03}: visual analysis unavailable", page_num);
+                String::new()
+            }
+        }
+    } else {
+        String::new()
+    };
     // Native markdown is valid only for pages produced by pdf_oxide.
     if source.ocr_model.as_deref() == Some("pdf_oxide") {
         if let Ok(md) = crate::pdfoxide_backend::extract_markdown(&source_pdf, page_num - 1) {
             if !md.trim().is_empty() && !is_ocr_required_placeholder(&md) {
-                let marker = format!("<!-- PAGE {} -->\n{}", page_num, md);
+                let body = if visual_md.is_empty() {
+                    md
+                } else {
+                    format!("{}\n\n{}", md.trim_end(), visual_md)
+                };
+                let body_len = body.len();
+                let marker = format!("<!-- PAGE {} -->\n{}", page_num, body);
                 atomic_write(&out_path, &marker)
                     .map_err(|e| format!("write {}: {}", out_path.display(), e))?;
                 atomic_write(&cache_path, &marker)
                     .map_err(|e| format!("write cache {}: {}", cache_path.display(), e))?;
-                eprintln!("[md] p{:03} native-markdown {} chars", page_num, md.len());
+                eprintln!("[md] p{:03} native-markdown {} chars", page_num, body_len);
                 return Ok((page_num, marker.len()));
             }
         }
@@ -263,12 +338,16 @@ fn reconstruct_one(
     }
     let data: CompletionResponse =
         serde_json::from_slice(&body).map_err(|e| format!("parse llm response: {}", e))?;
-    let md = data
+    let mut md = data
         .choices
         .first()
         .and_then(|choice| choice.message.content.as_deref())
         .map(|content| normalize_page_marker(content, page_num))
         .ok_or_else(|| "missing choices[0].message.content".to_string())?;
+    if !visual_md.is_empty() {
+        md.push_str("\n\n");
+        md.push_str(&visual_md);
+    }
     validate_markdown(&md, page_num)?;
     if let Err(retention_error) = validate_retention(&input, &md, page_num) {
         let fallback = deterministic_fallback(&source, page_num);
@@ -333,6 +412,45 @@ fn finalize_document(markdown: &str) -> Result<String, String> {
         return Err("finalize document: page marker leaked into final output".to_string());
     }
     Ok(finalized)
+}
+
+fn is_visual_candidate(source: &PageJson) -> bool {
+    // ponytail: conservative keyword heuristic; replace with native object geometry
+    // when pdf_oxide exposes stable line/shape extraction for this version.
+    let native_text = source
+        .layout_regions
+        .iter()
+        .filter_map(|region| region.text_combined.as_deref())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let visual_keywords = [
+        "Transaction",
+        "Public Key",
+        "Private Key",
+        "Signature",
+        "Hash",
+        "Block",
+    ];
+    let keyword_hits = visual_keywords
+        .iter()
+        .filter(|keyword| native_text.contains(**keyword))
+        .count();
+    let native_visual_hint = source.ocr_model.as_deref() == Some("pdf_oxide")
+        && keyword_hits >= 3
+        && (native_text.matches("Transaction").count() >= 2
+            || native_text.matches("Block").count() >= 2);
+    source.quality.visual_region_detected
+        || native_visual_hint
+        || source
+            .risk_flags
+            .iter()
+            .any(|flag| matches!(flag.as_str(), "visual_object" | "table_detected"))
+        || source.layout_regions.iter().any(|region| {
+            matches!(
+                region.label.as_str(),
+                "figure" | "chart" | "diagram" | "image" | "table" | "formula"
+            ) && region.score >= 0.5
+        })
 }
 
 fn normalized_contains(haystack: &str, needle: &str) -> bool {
@@ -686,7 +804,7 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
                 if page.quality.review_required {
                     review_required += 1;
                 }
-                if page.risk_flags.iter().any(|f| f == "visual_object") {
+                if is_visual_candidate(&page) {
                     vlm_candidates += 1;
                 }
             }
@@ -698,9 +816,10 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
             .ok()
             .and_then(|text| serde_json::from_str::<PageJson>(&text).ok())
             .is_some_and(|page| {
-                !page.blank
+                (!page.blank
                     && !page.ocr_boxes.is_empty()
-                    && page.ocr_model.as_deref() != Some("pdf_oxide")
+                    && page.ocr_model.as_deref() != Some("pdf_oxide"))
+                    || (args.visual && is_visual_candidate(&page))
             })
     });
     if needs_llm {
@@ -773,6 +892,7 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
                 model: args.model.clone(),
                 base_url: args.base_url.clone(),
                 reasoning_effort: args.reasoning_effort.clone(),
+                visual: args.visual,
             };
             thread::spawn(move || {
                 let res = reconstruct_one(json_path, out_path, cache_dir, source_pdf, llm);
@@ -816,6 +936,30 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         atomic_write(bundle_root.join("document.md"), finalized)
             .map_err(|e| format!("write document.md: {}", e))?;
     }
+    let mut visual_success = 0usize;
+    let mut visual_partial = 0usize;
+    let mut visual_error = 0usize;
+    for page in &files {
+        let stem = page.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let artifact = md_root.join(format!("{}.visual.json", stem));
+        match fs::read_to_string(artifact)
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|value| {
+                value
+                    .get("status")
+                    .and_then(|status| status.as_str())
+                    .map(str::to_owned)
+            })
+            .as_deref()
+        {
+            Some("success") => visual_success += 1,
+            Some("partial") => visual_partial += 1,
+            Some("error") => visual_error += 1,
+            _ => {}
+        }
+    }
+    let visual_skipped = files.len().saturating_sub(vlm_candidates);
     let manifest = Manifest {
         input: args.json_dir.clone(),
         output_dir: bundle_root.display().to_string(),
@@ -825,6 +969,10 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         quality_failed,
         review_required,
         vlm_candidates,
+        visual_success,
+        visual_partial,
+        visual_error,
+        visual_skipped,
         pages_total: files.len(),
         pages_empty,
         json_success,
@@ -850,7 +998,47 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cache_key, is_page_marker_key, retention_key};
+    use super::{cache_key, is_page_marker_key, is_visual_candidate, retention_key};
+    use crate::types::PageJson;
+
+    fn page_with_visual(risk_flags: &[&str], label: &str) -> PageJson {
+        serde_json::from_value(serde_json::json!({
+            "status": "success",
+            "page": 2,
+            "blank": false,
+            "png": null,
+            "dpi": 150,
+            "layout_regions": [{"label": label, "score": 0.9, "bbox": [0, 0, 10, 10]}],
+            "ocr_boxes": [],
+            "reading_order": [],
+            "risk_flags": risk_flags,
+            "quality": {
+                "text_chars": 0,
+                "ocr_box_count": 0,
+                "mean_confidence": 0.0,
+                "low_confidence_ratio": 0.0,
+                "table_detected": false,
+                "visual_region_detected": false,
+                "review_required": false
+            },
+            "timings": {"render": 0.0, "layout": 0.0, "ocr": 0.0, "cleanup": 0.0, "total": 0.0}
+        }))
+        .expect("valid page fixture")
+    }
+
+    #[test]
+    fn visual_candidates_are_selective() {
+        assert!(is_visual_candidate(&page_with_visual(
+            &["visual_object"],
+            "text"
+        )));
+        assert!(is_visual_candidate(&page_with_visual(&[], "diagram")));
+        assert!(is_visual_candidate(&page_with_visual(
+            &["table_detected"],
+            "text"
+        )));
+        assert!(!is_visual_candidate(&page_with_visual(&[], "text")));
+    }
 
     #[test]
     fn page_markers_are_excluded_but_legal_tokens_are_retained() {

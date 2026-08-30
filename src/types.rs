@@ -92,6 +92,10 @@ pub(crate) struct ReconstructArgs {
     /// Provider reasoning effort (best effort; output always comes from content)
     #[arg(long, default_value = "none")]
     pub reasoning_effort: String,
+
+    /// Run selective vision analysis for visual candidate pages
+    #[arg(long, default_value_t = false)]
+    pub visual: bool,
 }
 
 // ─── JSON output schema ───

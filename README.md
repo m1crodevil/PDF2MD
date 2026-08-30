@@ -15,6 +15,30 @@ PDF → page probe → native Markdown OR OCR JSON → optional LLM reconstructi
 
 Image-only pages, figures, charts, diagrams, complex tables, and unusual layouts may require manual review or an opt-in VLM workflow.
 
+### Selective visual VLM route
+
+Visual analysis is opt-in and candidate-based; native text-rich pages are not sent to the model. A candidate is identified from `visual_region_detected`, visual/table risk flags, figure-like layout regions, or conservative native-text hints such as repeated transaction/block diagram labels.
+
+```bash
+./target/release/pdf2md reconstruct \
+  --json-dir ./json \
+  --source-pdf ./input.pdf \
+  --outdir ./output \
+  --visual
+```
+
+The route renders only candidate pages at 150 DPI, sends the PNG as a Base64 image to the configured OpenAI-compatible `/chat/completions` endpoint, and writes a separate artifact beside the page Markdown:
+
+```text
+output/<bundle>/md/page_002.visual.json
+```
+
+The raw `page_002.json` is never overwritten. The visual artifact contains `schema_version`, page/model provenance, source image SHA-256, visible labels, relationships, uncertainties, and generated Markdown. The model is required to return strict JSON; bounded retries apply only to timeout/network, HTTP 408, HTTP 429, and HTTP 5xx responses. Missing credentials, HTTP 402, other 4xx responses, invalid JSON, and schema failures produce an error artifact without deleting the raw page JSON.
+
+Visual Markdown is explicitly marked as interpretation and is appended only after the native page content. Mermaid is deliberately not generated: prose plus uncertainty is safer than a polished but incorrect graph. Manifest fields `vlm_candidates`, `visual_success`, `visual_partial`, `visual_error`, and `visual_skipped` expose coverage.
+
+This route follows the documented image-input pattern for OpenAI-compatible APIs (URL or Base64 data URL), Pandoc's LaTeX PDF flow, and pypdfium2/PDFium's role as a renderer alternative. It does not install a local VLM or add a provider abstraction. Cloud VLM remains optional because visual results are provider- and credential-dependent.
+
 ## Requirements
 
 Run the dependency check before processing a new environment:
