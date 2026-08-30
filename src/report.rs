@@ -1,8 +1,6 @@
-use std::fs;
-use std::path::Path;
-
 use crate::io::atomic_write;
-use crate::types::PageJson;
+use crate::types::{PageError, PageJson, PageQuality, Timings};
+use std::fs;
 
 // ─── Progress & summary ───
 
@@ -74,8 +72,46 @@ pub(crate) fn print_summary(
     eprintln!("Output: {} ({} files)", outdir, files);
 }
 
-pub(crate) fn json_exists(json_path: &str) -> bool {
-    Path::new(json_path).exists()
+pub(crate) fn is_reusable_json(json_path: &str, page_num: usize) -> bool {
+    let Ok(text) = fs::read_to_string(json_path) else {
+        return false;
+    };
+    let Ok(page) = serde_json::from_str::<PageJson>(&text) else {
+        return false;
+    };
+    page.page == page_num && matches!(page.status.as_str(), "success" | "partial")
+}
+
+pub(crate) fn error_page(
+    page_num: usize,
+    stage: &str,
+    message: impl Into<String>,
+    retryable: bool,
+) -> PageJson {
+    PageJson {
+        status: "error".to_string(),
+        page: page_num,
+        blank: false,
+        png: None,
+        dpi: 0,
+        layout_regions: Vec::new(),
+        ocr_boxes: Vec::new(),
+        reading_order: Vec::new(),
+        risk_flags: vec!["extraction_failed".to_string()],
+        quality: PageQuality {
+            review_required: true,
+            ..PageQuality::default()
+        },
+        furniture: Vec::new(),
+        filtered_ocr_boxes: None,
+        ocr_model: None,
+        error: Some(PageError {
+            stage: stage.to_string(),
+            message: message.into(),
+            retryable,
+        }),
+        timings: Timings::default(),
+    }
 }
 
 pub(crate) fn write_page_json(
@@ -85,4 +121,30 @@ pub(crate) fn write_page_json(
     let json_str = serde_json::to_string_pretty(page_json)
         .map_err(|e| format!("JSON serialize failed: {}", e))?;
     atomic_write(json_path, json_str).map_err(|e| format!("write failed: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{error_page, is_reusable_json, write_page_json};
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn reusable_json_requires_valid_matching_page_and_non_error_status() {
+        let root = std::env::temp_dir().join(format!(
+            "pdf2md-report-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("page_001.json");
+        let page = error_page(1, "ocr", "failed", true);
+        write_page_json(path.to_str().unwrap(), &page).unwrap();
+        assert!(!is_reusable_json(path.to_str().unwrap(), 1));
+        fs::write(&path, "not json").unwrap();
+        assert!(!is_reusable_json(path.to_str().unwrap(), 1));
+        fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -16,7 +16,9 @@ pub(crate) fn annotate_directory(input: &str) -> Result<(), String> {
         let page: PageJson =
             serde_json::from_str(&fs::read_to_string(&path).map_err(|e| e.to_string())?)
                 .map_err(|e| format!("parse {}: {}", path.display(), e))?;
-        pages.push(page);
+        if page.status != "error" {
+            pages.push(page);
+        }
     }
     let mut frequency = HashMap::<String, usize>::new();
     for page in &pages {
@@ -186,6 +188,7 @@ mod tests {
             furniture: Vec::new(),
             filtered_ocr_boxes: Some(vec![0]),
             ocr_model: None,
+            error: None,
             timings: Timings {
                 render: 0.0,
                 layout: 0.0,

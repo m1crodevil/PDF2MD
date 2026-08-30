@@ -11,7 +11,7 @@ PDF → page probe → native Markdown OR OCR JSON → optional LLM reconstructi
 - **Text-rich pages:** use `pdf_oxide` native Markdown conversion. This route is deterministic and does not require an API key.
 - **Scanned or sparse-text pages:** use PDF rendering, PP-DocLayout, and `faster_paddle` OCR. Reconstruction uses the configured LLM when required.
 - **Mixed documents:** route each page independently; native pages bypass the LLM.
-- **Quality validation:** checks page markers, page coverage, protected tokens, Markdown structure, and retention. Failed validation remains explicit in the manifest.
+- **Quality validation:** checks page markers, page coverage, protected tokens, Markdown structure, and retention. It never removes page JSON: low-quality extraction remains a `success`/`partial` record with review flags, while technical failures produce an `error` record and a non-zero process exit.
 
 Image-only pages, figures, charts, diagrams, complex tables, and unusual layouts may require manual review or an opt-in VLM workflow.
 
@@ -75,7 +75,7 @@ OCR writes page JSON containing text, layout regions, OCR boxes, confidence, qua
 - `.cache/reconstruct/`;
 - a copy of the source PDF.
 
-Existing outputs are reused only after Markdown and retention validation. Writes use an atomic temporary-file-and-rename sequence to avoid partial artifacts.
+Existing outputs are reused only after Markdown and retention validation. Invalid, malformed, or `error` JSON is retried rather than skipped. Writes use an atomic temporary-file-and-rename sequence to avoid partial artifacts. The reconstruction manifest reports `json_success`, `json_partial`, and `json_error` separately from Markdown failures.
 
 ## Quality and development checks
 

@@ -91,6 +91,7 @@ pub(crate) fn extract_page(path: &Path, page: usize) -> Result<PageJson, String>
         furniture: Vec::new(),
         filtered_ocr_boxes: None,
         ocr_model: Some("pdf_oxide".to_string()),
+        error: None,
         timings: Timings {
             render: 0.0,
             layout: 0.0,

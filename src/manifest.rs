@@ -13,6 +13,9 @@ pub(crate) struct Manifest {
     pub vlm_candidates: usize,
     pub pages_total: usize,
     pub pages_empty: usize,
+    pub json_success: usize,
+    pub json_partial: usize,
+    pub json_error: usize,
     pub content_integrity: String,
 }
 

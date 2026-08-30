@@ -145,7 +145,16 @@ pub(crate) struct PageJson {
     pub filtered_ocr_boxes: Option<Vec<usize>>,
     #[serde(default)]
     pub ocr_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<PageError>,
     pub timings: Timings,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub(crate) struct PageError {
+    pub stage: String,
+    pub message: String,
+    pub retryable: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -157,7 +166,8 @@ pub(crate) struct FurnitureAnnotation {
 }
 
 fn default_page_status() -> String {
-    "success".to_string()
+    // Legacy JSON without an explicit status is usable but unverified.
+    "partial".to_string()
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -171,7 +181,7 @@ pub(crate) struct PageQuality {
     pub review_required: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub(crate) struct Timings {
     pub render: f64,
     pub layout: f64,

@@ -202,6 +202,7 @@ pub(crate) fn process_page(
             furniture: Vec::new(),
             filtered_ocr_boxes: None,
             ocr_model: None,
+            error: None,
             timings: Timings {
                 render: render_time,
                 layout: 0.0,
@@ -353,6 +354,7 @@ pub(crate) fn process_page(
         furniture: Vec::new(),
         filtered_ocr_boxes: None,
         ocr_model,
+        error: None,
         timings: Timings {
             render: render_time,
             layout: layout_time,

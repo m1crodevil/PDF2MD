@@ -48,10 +48,8 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
     let tmp_dir = tmp_root.to_string_lossy().into_owned();
 
     let regex_fixes = RegexFixes::new();
-    let mut helper = BatchHelper::new(&cli.helper).unwrap_or_else(|e| {
-        eprintln!("FATAL: {}", e);
-        std::process::exit(1);
-    });
+    let mut helper = None;
+    let mut helper_error: Option<String> = None;
 
     let mut skipped = 0;
     let mut errors = 0;
@@ -59,7 +57,7 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
 
     for page_num in cli.start..=total {
         let json_path = format!("{}/page_{:03}.json", cli.outdir, page_num);
-        if json_exists(&json_path) {
+        if is_reusable_json(&json_path, page_num) {
             skipped += 1;
             print_skip(page_num, total);
             continue;
@@ -82,7 +80,31 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
             }
         }
 
-        match process_page(cli, page_num, &tmp_dir, &regex_fixes, &mut helper) {
+        let page_result: Result<_, String> = if let Some(error) = helper_error.as_ref() {
+            Err(error.clone())
+        } else if helper.is_none() {
+            match BatchHelper::new(&cli.helper) {
+                Ok(value) => {
+                    helper = Some(value);
+                    helper
+                        .as_mut()
+                        .ok_or_else(|| "OCR helper unavailable".to_string())
+                        .and_then(|helper| {
+                            process_page(cli, page_num, &tmp_dir, &regex_fixes, helper)
+                        })
+                }
+                Err(error) => {
+                    helper_error = Some(error.clone());
+                    Err(error)
+                }
+            }
+        } else {
+            helper
+                .as_mut()
+                .ok_or_else(|| "OCR helper unavailable".to_string())
+                .and_then(|helper| process_page(cli, page_num, &tmp_dir, &regex_fixes, helper))
+        };
+        match page_result {
             Ok(page_json) => match write_page_json(&json_path, &page_json) {
                 Ok(_) => {
                     let elapsed = start_time.elapsed().as_secs_f64();
@@ -96,14 +118,20 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
             },
             Err(e) => {
                 errors += 1;
-                print_error(page_num, &e);
+                let error_json = error_page(page_num, "ocr", &e, true);
+                if let Err(write_error) = write_page_json(&json_path, &error_json) {
+                    print_error(
+                        page_num,
+                        &format!("{}; error JSON write failed: {}", e, write_error),
+                    );
+                } else {
+                    print_error(page_num, &e);
+                }
             }
         }
     }
 
-    if errors == 0 {
-        annotate_directory(&cli.outdir).map_err(|e| format!("furniture annotation: {}", e))?;
-    }
+    annotate_directory(&cli.outdir).map_err(|e| format!("furniture annotation: {}", e))?;
     print_summary(
         start_time.elapsed().as_secs_f64(),
         total,

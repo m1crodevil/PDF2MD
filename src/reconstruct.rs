@@ -153,6 +153,17 @@ fn reconstruct_one(
         .ok_or_else(|| format!("bad filename: {}", json_path.display()))?;
     let source: PageJson = serde_json::from_str(&input)
         .map_err(|e| format!("parse page JSON {}: {}", json_path.display(), e))?;
+    if source.status == "error" {
+        let detail = source
+            .error
+            .as_ref()
+            .map(|error| format!("{}: {}", error.stage, error.message))
+            .unwrap_or_else(|| "unspecified extraction error".to_string());
+        return Err(format!(
+            "page {} cannot be reconstructed: {}",
+            page_num, detail
+        ));
+    }
 
     let prompt = build_prompt(page_num, &input);
     let key = cache_key(&llm.model, &prompt, &input);
@@ -406,8 +417,8 @@ fn deterministic_fallback(source: &PageJson, page_num: usize) -> String {
 fn validate_retention(input: &str, markdown: &str, page_num: usize) -> Result<(), String> {
     let source: PageJson =
         serde_json::from_str(input).map_err(|e| format!("parse page JSON: {}", e))?;
-    if source.status != "success" {
-        return Err(format!("page {} is not a successful OCR result", page_num));
+    if !matches!(source.status.as_str(), "success" | "partial") {
+        return Err(format!("page {} is not a usable OCR result", page_num));
     }
     // layout_regions.text_combined duplicates ocr_boxes text; count boxes only
     let source_numbers = source
@@ -648,6 +659,25 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         .count();
     let mut review_required = 0usize;
     let mut vlm_candidates = 0usize;
+    let mut json_success = 0usize;
+    let mut json_partial = 0usize;
+    let mut json_error = 0usize;
+    for json_path in &files {
+        if let Ok(text) = fs::read_to_string(json_path) {
+            if let Ok(page) = serde_json::from_str::<PageJson>(&text) {
+                match page.status.as_str() {
+                    "success" => json_success += 1,
+                    "partial" => json_partial += 1,
+                    "error" => json_error += 1,
+                    _ => json_error += 1,
+                }
+            } else {
+                json_error += 1;
+            }
+        } else {
+            json_error += 1;
+        }
+    }
     let max_concurrency = args.concurrency.max(1);
 
     for json_path in &files {
@@ -711,7 +741,9 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
                 }
             };
             match serde_json::from_str::<PageJson>(&input) {
-                Ok(page) if page.status == "success" && page.page == page_num => {}
+                Ok(page)
+                    if matches!(page.status.as_str(), "success" | "partial")
+                        && page.page == page_num => {}
                 Ok(page) => {
                     fail += 1;
                     eprintln!(
@@ -795,7 +827,10 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
         vlm_candidates,
         pages_total: files.len(),
         pages_empty,
-        content_integrity: if pages_empty == 0 && fail == 0 {
+        json_success,
+        json_partial,
+        json_error,
+        content_integrity: if pages_empty == 0 && fail == 0 && json_error == 0 {
             "complete"
         } else {
             "incomplete"
