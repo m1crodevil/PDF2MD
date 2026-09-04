@@ -65,10 +65,6 @@ pub(crate) struct ReconstructArgs {
     #[arg(long, default_value = "./output")]
     pub outdir: String,
 
-    /// Copy of the original PDF path in the output bundle
-    #[arg(long, default_value = "./input.pdf")]
-    pub original_pdf: String,
-
     /// API key env/file lookup key
     #[arg(long, default_value = "PDF2MD_API_KEY")]
     pub api_key_env: String,

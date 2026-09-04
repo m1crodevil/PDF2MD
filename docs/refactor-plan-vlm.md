@@ -229,7 +229,7 @@ git diff --check
 python3 scripts/check_repo_hygiene.py
 pandoc docs/refactor-plan-vlm.md -o docs/pdf2md-vlm-refactor-report.pdf --pdf-engine=xelatex -V papersize=a4 -V geometry:margin=2cm -V fontsize=11pt -V linestretch=1.15
 pdfinfo docs/pdf2md-vlm-refactor-report.pdf
-pdftotext -layout docs/pdf2md-vlm-refactor-report.pdf /tmp/pdf2md-vlm-report.txt
+pdftotext -layout docs/pdf2md-vlm-refactor-report.pdf - | head -n 20
 ```
 
 The repository must not commit PDFs, PNGs, Base64 payloads, caches, temporary outputs, or credentials unless a fixture is explicitly designated and sanitized. The generated report is an intentional deliverable; runtime Bitcoin artifacts stay outside the repository.

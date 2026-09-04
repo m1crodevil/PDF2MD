@@ -71,12 +71,6 @@ impl AppConfig {
             overlay!(args, cfg, json_dir, "./json");
             overlay!(args, cfg, outdir, "./output");
             overlay!(args, cfg, source_pdf, "./input.pdf");
-            // original_pdf follows source_pdf
-            if args.original_pdf == "./input.pdf" {
-                if let Some(v) = &cfg.source_pdf {
-                    args.original_pdf = v.clone();
-                }
-            }
             overlay!(args, cfg, env_file, "./.env");
             overlay!(args, cfg, api_key_env, "PDF2MD_API_KEY");
             overlay!(args, cfg, base_url, "");

@@ -19,6 +19,16 @@ impl PageProbe {
     }
 }
 
+pub(crate) fn pdf_page_count(path: &Path) -> Result<usize, String> {
+    let path = path
+        .to_str()
+        .ok_or_else(|| "PDF path is not valid UTF-8".to_string())?;
+    let document = PdfDocument::open(path).map_err(|e| format!("PDFOxide open failed: {e}"))?;
+    document
+        .page_count()
+        .map_err(|e| format!("PDFOxide page_count failed: {e}"))
+}
+
 pub(crate) fn probe_page(path: &Path, page: usize) -> Result<PageProbe, String> {
     let path = path
         .to_str()

@@ -52,14 +52,6 @@ def run_ocr(engine, png_path):
     return {"ocr_boxes_raw": boxes, "ocr_time": round(elapsed, 1)}
 
 
-def needs_medium(layout):
-    # ponytail: table-only routing; expand labels only after measured misses justify it.
-    return any(
-        r.get("label", "").lower() == "table" and float(r.get("score", 0)) >= 0.5
-        for r in layout.get("layout_regions", [])
-    )
-
-
 def run_page(ld, engines, png_path):
     layout = run_layout(ld, png_path)
     # Layout misses are not blank pages: retry full-page OCR with the stronger

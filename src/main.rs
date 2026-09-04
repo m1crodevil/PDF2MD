@@ -19,14 +19,14 @@ use config::load as load_config;
 
 use furniture::annotate_directory;
 use page::{process_page, BatchHelper};
-use pdfoxide_backend::{extract_page, probe_page};
+use pdfoxide_backend::{extract_page, pdf_page_count, probe_page};
 use reconstruct::run as run_reconstruct;
 use report::*;
 use types::{Cli, Commands, OcrArgs};
 
 fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
     preflight_ocr_dependencies(&cli.helper)?;
-    let pdf_total = pdf_page_count(&cli.pdf)?;
+    let pdf_total = pdf_page_count(std::path::Path::new(&cli.pdf))?;
     let configured_total = cli.total.unwrap_or(pdf_total);
     if configured_total == 0 || configured_total > pdf_total {
         return Err(format!(
@@ -80,29 +80,19 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
             }
         }
 
-        let page_result: Result<_, String> = if let Some(error) = helper_error.as_ref() {
-            Err(error.clone())
-        } else if helper.is_none() {
-            match BatchHelper::new(&cli.helper) {
-                Ok(value) => {
-                    helper = Some(value);
-                    helper
-                        .as_mut()
-                        .ok_or_else(|| "OCR helper unavailable".to_string())
-                        .and_then(|helper| {
-                            process_page(cli, page_num, &tmp_dir, &regex_fixes, helper)
-                        })
+        let page_result: Result<_, String> = match (helper_error.as_ref(), helper.as_mut()) {
+            (Some(err), _) => Err(err.clone()),
+            (None, Some(h)) => process_page(cli, page_num, &tmp_dir, &regex_fixes, h),
+            (None, None) => match BatchHelper::new(&cli.helper) {
+                Ok(h) => {
+                    let h_ref = helper.insert(h);
+                    process_page(cli, page_num, &tmp_dir, &regex_fixes, h_ref)
                 }
-                Err(error) => {
-                    helper_error = Some(error.clone());
-                    Err(error)
+                Err(err) => {
+                    helper_error = Some(err.clone());
+                    Err(err)
                 }
-            }
-        } else {
-            helper
-                .as_mut()
-                .ok_or_else(|| "OCR helper unavailable".to_string())
-                .and_then(|helper| process_page(cli, page_num, &tmp_dir, &regex_fixes, helper))
+            },
         };
         match page_result {
             Ok(page_json) => match write_page_json(&json_path, &page_json) {
@@ -154,11 +144,7 @@ fn run_ocr(cli: &OcrArgs) -> Result<(), String> {
 }
 
 fn preflight_ocr_dependencies(helper: &str) -> Result<(), String> {
-    for (command, version_arg) in [
-        ("pdfinfo", "-v"),
-        ("pdftoppm", "-v"),
-        ("python3", "--version"),
-    ] {
+    for (command, version_arg) in [("pdftoppm", "-v"), ("python3", "--version")] {
         require_command(command, version_arg)?;
     }
     if !std::path::Path::new(helper).is_file() {
@@ -181,23 +167,6 @@ fn require_command(command: &str, version_arg: &str) -> Result<(), String> {
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }
-}
-
-fn pdf_page_count(pdf: &str) -> Result<usize, String> {
-    let output = std::process::Command::new("pdfinfo")
-        .arg(pdf)
-        .output()
-        .map_err(|e| format!("pdfinfo failed: {}", e))?;
-    if !output.status.success() {
-        return Err(format!(
-            "pdfinfo error: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .find_map(|line| line.strip_prefix("Pages:")?.trim().parse().ok())
-        .ok_or_else(|| "pdfinfo output has no Pages field".to_string())
 }
 
 fn main() {

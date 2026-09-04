@@ -120,11 +120,7 @@ fn cache_key(model: &str, prompt: &str, input_json: &str) -> String {
     hasher.update(prompt.as_bytes());
     hasher.update(b"\n");
     hasher.update(input_json.as_bytes());
-    hex_of(&hasher.finalize())
-}
-
-fn hex_of(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    format!("{:x}", hasher.finalize())
 }
 
 /// LLM connection params grouped to avoid clippy::too_many_arguments.
@@ -721,9 +717,6 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
             args.base_url = value;
         }
     }
-    if args.original_pdf == "./input.pdf" {
-        args.original_pdf = args.source_pdf.clone();
-    }
     let pdf_name = pdf_stem(&args.source_pdf);
     let bundle_root = PathBuf::from(&args.outdir).join(&pdf_name);
     let md_root = bundle_root.join("md");
@@ -734,10 +727,10 @@ pub(crate) fn run(args: &ReconstructArgs) -> Result<(), String> {
     fs::create_dir_all(&md_root).map_err(|e| format!("mkdir {}: {}", md_root.display(), e))?;
     let original_copy = bundle_root.join("original.pdf");
     if !original_copy.exists() {
-        fs::copy(&args.original_pdf, &original_copy).map_err(|e| {
+        fs::copy(&args.source_pdf, &original_copy).map_err(|e| {
             format!(
                 "copy {} -> {}: {}",
-                args.original_pdf,
+                args.source_pdf,
                 original_copy.display(),
                 e
             )
